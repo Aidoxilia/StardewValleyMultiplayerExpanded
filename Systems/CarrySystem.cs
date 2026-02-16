@@ -288,7 +288,9 @@ public sealed class CarrySystem
             }
 
             carried.CanMove = false;
-            carried.Position = carrier.Position + new Vector2(0, this.mod.Config.CarryOffsetY);
+            float bob = (float)Math.Sin(Game1.ticks / 8f) * 2f;
+            Vector2 target = carrier.Position + new Vector2(0f, this.mod.Config.CarryOffsetY + bob);
+            carried.Position = Vector2.Lerp(carried.Position, target, 0.72f);
             carried.FacingDirection = carrier.FacingDirection;
         }
     }
@@ -533,6 +535,8 @@ public sealed class CarrySystem
         {
             carried.CanMove = false;
         }
+        this.TryPlayEmote(carrierId, 20);
+        this.TryPlayEmote(carriedId, 20);
 
         this.mod.NetSync.Broadcast(
             MessageType.CarryState,
@@ -600,5 +604,22 @@ public sealed class CarrySystem
     private static bool IsFatigued(Farmer farmer)
     {
         return farmer.exhausted.Value || farmer.Stamina <= 0f;
+    }
+
+    private void TryPlayEmote(long playerId, int emoteId)
+    {
+        Farmer? farmer = this.mod.FindFarmerById(playerId, includeOffline: false);
+        if (farmer is null)
+        {
+            return;
+        }
+
+        try
+        {
+            farmer.doEmote(emoteId);
+        }
+        catch
+        {
+        }
     }
 }

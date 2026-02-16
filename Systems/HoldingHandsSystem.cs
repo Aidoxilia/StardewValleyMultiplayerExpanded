@@ -278,7 +278,8 @@ public sealed class HoldingHandsSystem
             }
 
             Vector2 sideOffset = this.GetFollowerOffsetPixels(leader.FacingDirection);
-            Vector2 target = leader.Position + sideOffset;
+            float sway = (float)Math.Sin(Game1.ticks / 10f) * 1.6f;
+            Vector2 target = leader.Position + sideOffset + new Vector2(0f, sway);
             follower.Position = Vector2.Lerp(follower.Position, target, 0.65f);
             follower.FacingDirection = leader.FacingDirection;
         }
@@ -479,6 +480,8 @@ public sealed class HoldingHandsSystem
         history.LastStartedDay = this.mod.GetCurrentDayNumber();
         history.TotalSessions++;
         this.mod.MarkDataDirty("Holding hands session started.", flushNow: true);
+        this.TryPlayEmote(leaderId, 20);
+        this.TryPlayEmote(followerId, 20);
 
         this.mod.NetSync.Broadcast(
             MessageType.HoldingHandsState,
@@ -585,5 +588,22 @@ public sealed class HoldingHandsSystem
     private string GetSessionKey(long leaderId, long followerId)
     {
         return $"{leaderId}->{followerId}";
+    }
+
+    private void TryPlayEmote(long playerId, int emoteId)
+    {
+        Farmer? farmer = this.mod.FindFarmerById(playerId, includeOffline: false);
+        if (farmer is null)
+        {
+            return;
+        }
+
+        try
+        {
+            farmer.doEmote(emoteId);
+        }
+        catch
+        {
+        }
     }
 }

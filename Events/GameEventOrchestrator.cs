@@ -92,7 +92,14 @@ public sealed class GameEventOrchestrator
 
     private void OnOneSecondUpdateTicked(object? sender, OneSecondUpdateTickedEventArgs e)
     {
-        if (!Context.IsWorldReady || !this.mod.IsHostPlayer)
+        if (!Context.IsWorldReady)
+        {
+            return;
+        }
+
+        this.mod.NetSync.ClientWatchdogTick();
+
+        if (!this.mod.IsHostPlayer)
         {
             return;
         }

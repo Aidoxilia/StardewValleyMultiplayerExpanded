@@ -1,0 +1,2 @@
+C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley\Mods\MultiplayerExpanded\Installer\bin\Release\net8.0-windows\win-x64\publish\PlayerRomanceSetup.pdb
+C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley\Mods\MultiplayerExpanded\Installer\bin\Release\net8.0-windows\win-x64\publish\PlayerRomanceSetup.exe

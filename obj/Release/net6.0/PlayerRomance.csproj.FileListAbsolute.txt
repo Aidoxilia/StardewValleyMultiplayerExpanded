@@ -10,3 +10,4 @@ C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley\Mods\MultiplayerExp
 C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley\Mods\MultiplayerExpanded\obj\Release\net6.0\refint\PlayerRomance.dll
 C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley\Mods\MultiplayerExpanded\obj\Release\net6.0\PlayerRomance.pdb
 C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley\Mods\MultiplayerExpanded\obj\Release\net6.0\ref\PlayerRomance.dll
+C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley\Mods\MultiplayerExpanded\obj\Release\net6.0\PlayerRomance.sourcelink.json

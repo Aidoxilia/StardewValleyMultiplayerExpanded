@@ -14,6 +14,8 @@ Multiplayer player-to-player romance systems with host-authoritative state and s
 - Temporary date stands (`IceCream`, `Roses`, `Clothing`) and temporary roaming NPCs during the session.
 - Host-authoritative stand transactions (`gold + real item`) with anti-duplication request IDs.
 - Heart system per couple (`HeartPoints`, `HeartLevel` up to 14 hearts).
+- Town date is the baseline date and requires `0` hearts.
+- Completed date reward is `+0.5 heart` (half a heart) per completed date.
 - Holding hands consensual sessions (request/accept/reject/stop) with robust MP sync.
 
 ## Installation
@@ -21,6 +23,29 @@ Multiplayer player-to-player romance systems with host-authoritative state and s
 2. Place this folder under `Stardew Valley/Mods/MultiplayerExpanded` (or your chosen mod folder name).
 3. Ensure `SMAPI 4.x` and Stardew Valley `1.6+`.
 4. Launch with SMAPI.
+
+### One-click installer/updater (Windows)
+- Project: `Installer/PlayerRomanceSetup.csproj`
+- Build command:
+```powershell
+dotnet publish .\Installer\PlayerRomanceSetup.csproj -c Release
+```
+- Output folder:
+`Installer\bin\Release\net8.0-windows\publish\`
+- Run:
+`PlayerRomanceSetup.exe` (from that folder)
+
+If you want a fully single-file/self-contained executable, use:
+```powershell
+dotnet publish .\Installer\PlayerRomanceSetup.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true
+```
+This requires internet access to fetch runtime packs during publish.
+
+Flow:
+1. User runs `PlayerRomanceSetup.exe`.
+2. Installer auto-detects Stardew folder (`Steam/GOG/Xbox` common paths + registry + Steam libraries).
+3. Installer downloads/updates runtime mod files from `https://github.com/Aidoxilia/StardewValleyMultiplayerExpanded` and installs to `Mods\MultiplayerExpanded`.
+4. Installer creates desktop/start-menu shortcut that always launches through updater (`--launch`) before starting SMAPI.
 
 Build command:
 ```powershell
@@ -35,7 +60,7 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
 - `RomanceHubHotkey`: hotkey string for romance hub (default `F7`).
 - `HeartPointsPerHeart`: points per heart (default `250`).
 - `MaxHearts`: max hearts (default `14`).
-- `ImmersiveDatePointsReward`: heart reward on completed immersive date.
+- `ImmersiveDatePointsReward`: legacy value (completion now uses half-heart reward).
 - `RejectionHeartPenalty`: heart penalty on rejected consensual requests.
 - `EarlyLeaveHeartPenalty`: heart penalty when immersive date ends early.
 - `ImmersiveDateEndTime`: end-time threshold for completion reward.
@@ -58,7 +83,7 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
 - `pr.propose <player>`
 - `pr.accept` / `pr.reject`
 - `pr.status [player]`
-- `pr.date.start <player>`
+- `pr.date.start <player>` (starts Town immersive date)
 - `pr.marry.propose <player>`
 - `pr.marry.accept` / `pr.marry.reject`
 - `pr.pregnancy.optin <player> [on/off]`
@@ -87,6 +112,18 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
 - Clients request mutations via `ModMessage`.
 - Host validates sender, state transitions, online presence, and cooldowns.
 - Host applies mutation, persists, then broadcasts deltas/snapshot.
+
+## Hearts progression guide
+- Gain hearts:
+  - complete a date (`+0.5 heart`);
+  - offer gifts from immersive stands;
+  - interact with immersive date NPCs (limited talk bonuses per session).
+- Lose hearts:
+  - reject a consensual request;
+  - end immersive date early / break date conditions.
+- Gating:
+  - `Town` date: no heart requirement;
+  - `Beach` and `Forest` immersive dates: require `ImmersiveDateMinHearts`.
 
 ## Validation scenarios (Host + 1 Client)
 ### 1) Immersive date start/end + cleanup

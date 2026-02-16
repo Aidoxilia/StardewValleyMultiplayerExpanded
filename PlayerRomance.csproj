@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <Compile Remove="_inspect\**\*.cs" />
+    <Compile Remove="Installer\**\*.cs" />
     <Reference Include="StardewModdingAPI">
       <HintPath>..\..\StardewModdingAPI.dll</HintPath>
       <Private>false</Private>

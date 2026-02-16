@@ -7,6 +7,8 @@ namespace PlayerRomance.Net;
 public sealed class NetSyncService
 {
     private readonly ModEntry mod;
+    private DateTime lastSnapshotAppliedUtc = DateTime.UtcNow;
+    private DateTime lastSnapshotRequestUtc = DateTime.MinValue;
 
     public NetSyncService(ModEntry mod)
     {
@@ -19,6 +21,8 @@ public sealed class NetSyncService
         {
             return;
         }
+
+        this.lastSnapshotRequestUtc = DateTime.UtcNow;
 
         this.mod.Helper.Multiplayer.SendMessage(
             new SnapshotRequestMessage
@@ -70,12 +74,35 @@ public sealed class NetSyncService
     public void ApplySnapshot(NetSnapshot snapshot)
     {
         this.mod.ClientSnapshot = snapshot ?? new NetSnapshot();
+        this.lastSnapshotAppliedUtc = DateTime.UtcNow;
         this.mod.CarrySystem.ApplySnapshot(this.mod.ClientSnapshot);
         this.mod.HoldingHandsSystem.ApplySnapshot(this.mod.ClientSnapshot);
         this.mod.DateImmersionSystem.ApplySnapshot(this.mod.ClientSnapshot);
         this.mod.Monitor.Log(
             $"[PR.Net] Snapshot applied: {this.mod.ClientSnapshot.Relationships.Count} relationships, {this.mod.ClientSnapshot.Children.Count} children.",
             LogLevel.Trace);
+    }
+
+    public void ClientWatchdogTick()
+    {
+        if (!Context.IsWorldReady || !Context.IsMultiplayer || this.mod.IsHostPlayer)
+        {
+            return;
+        }
+
+        DateTime now = DateTime.UtcNow;
+        if (now - this.lastSnapshotAppliedUtc < TimeSpan.FromSeconds(16))
+        {
+            return;
+        }
+
+        if (now - this.lastSnapshotRequestUtc < TimeSpan.FromSeconds(8))
+        {
+            return;
+        }
+
+        this.mod.Monitor.Log("[PR.Net] Snapshot watchdog triggered a resync request.", LogLevel.Trace);
+        this.RequestSnapshotFromHost();
     }
 
     public void SendToPlayer<T>(MessageType type, T payload, long playerId)

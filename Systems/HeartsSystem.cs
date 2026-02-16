@@ -117,6 +117,9 @@ public sealed class HeartsSystem
         this.mod.Monitor.Log(
             $"[PR.System.Hearts] Pair={relation.PairKey} source={source} delta={appliedDelta} points={payload.NewPoints} level={payload.NewLevel}.",
             StardewModdingAPI.LogLevel.Info);
+        this.mod.RecordHeartEvent(
+            relation.PairKey,
+            $"{(appliedDelta >= 0 ? "+" : string.Empty)}{appliedDelta} hearts ({source}) -> Lv {payload.NewLevel}");
         this.mod.MarkDataDirty($"Hearts updated ({source}).", flushNow: true);
         this.mod.NetSync.Broadcast(MessageType.HeartDelta, payload, relation.PlayerAId, relation.PlayerBId);
         this.mod.NetSync.BroadcastSnapshotToAll();

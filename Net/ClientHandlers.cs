@@ -252,15 +252,23 @@ public sealed class ClientHandlers
             {
                 HeartDeltaMessage delta = e.ReadAs<HeartDeltaMessage>();
                 RelationshipRecord? relation = this.mod.ClientSnapshot.Relationships.FirstOrDefault(p => p.PairKey == delta.PairKey);
+                relation ??= this.TryCreateClientRelationFromPairKey(delta.PairKey);
                 if (relation is not null)
                 {
                     relation.HeartPoints = delta.NewPoints;
                     relation.LastHeartChangeDay = this.mod.GetCurrentDayNumber();
                 }
+                else
+                {
+                    this.mod.NetSync.RequestSnapshotFromHost();
+                }
 
                 this.mod.Notifier.NotifyInfo(
                     $"Hearts updated ({delta.Source}): {(delta.Delta >= 0 ? "+" : string.Empty)}{delta.Delta}, level {delta.NewLevel}.",
                     "[PR.System.Hearts]");
+                this.mod.RecordHeartEvent(
+                    delta.PairKey,
+                    $"{(delta.Delta >= 0 ? "+" : string.Empty)}{delta.Delta} hearts ({delta.Source}) -> Lv {delta.NewLevel}");
                 break;
             }
             case MessageType.Error:
@@ -330,5 +338,45 @@ public sealed class ClientHandlers
 
         bool ok = this.mod.HoldingHandsSystem.RespondToPendingHoldingHandsLocal(accept, out string message);
         return (ok, message);
+    }
+
+    private RelationshipRecord? TryCreateClientRelationFromPairKey(string pairKey)
+    {
+        if (!TryParsePairKey(pairKey, out long playerAId, out long playerBId))
+        {
+            return null;
+        }
+
+        Farmer? playerA = this.mod.FindFarmerById(playerAId, includeOffline: true);
+        Farmer? playerB = this.mod.FindFarmerById(playerBId, includeOffline: true);
+        RelationshipRecord relation = new()
+        {
+            PairKey = pairKey,
+            PlayerAId = playerAId,
+            PlayerBId = playerBId,
+            PlayerAName = playerA?.Name ?? playerAId.ToString(),
+            PlayerBName = playerB?.Name ?? playerBId.ToString()
+        };
+
+        this.mod.ClientSnapshot.Relationships.Add(relation);
+        return relation;
+    }
+
+    private static bool TryParsePairKey(string pairKey, out long playerAId, out long playerBId)
+    {
+        playerAId = -1;
+        playerBId = -1;
+        if (string.IsNullOrWhiteSpace(pairKey))
+        {
+            return false;
+        }
+
+        string[] parts = pairKey.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2)
+        {
+            return false;
+        }
+
+        return long.TryParse(parts[0], out playerAId) && long.TryParse(parts[1], out playerBId);
     }
 }

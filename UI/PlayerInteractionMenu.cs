@@ -106,6 +106,8 @@ public sealed class PlayerInteractionMenu : IClickableMenu
         int heartPoints = relation?.HeartPoints ?? 0;
         b.DrawString(Game1.smallFont, $"Hearts: {hearts}/{this.mod.Config.MaxHearts} ({heartPoints} pts)", new Vector2(x, y), Color.DarkSlateBlue);
         y += 24;
+        b.DrawString(Game1.smallFont, "Gain: dates/gifts/talks | Loss: reject/early-end", new Vector2(x, y), Color.DarkSlateGray);
+        y += 24;
 
         foreach (ActionButton button in this.buttons)
         {
@@ -140,7 +142,7 @@ public sealed class PlayerInteractionMenu : IClickableMenu
     private void BuildButtons()
     {
         int x = this.xPositionOnScreen + 26;
-        int y = this.yPositionOnScreen + 132;
+        int y = this.yPositionOnScreen + 164;
         int width = this.width - 52;
         const int height = 40;
         const int spacing = 10;
@@ -167,10 +169,10 @@ public sealed class PlayerInteractionMenu : IClickableMenu
         y += height + spacing;
 
         this.AddButton(
-            "Start Date Event",
+            "Start Date (Town)",
             new Rectangle(x, y, width, height),
             this.GetDateEventState,
-            () => this.RunAction(this.mod.DateEventController.StartDateFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.Dating]"));
+            () => this.RunAction(this.mod.DateImmersionSystem.StartImmersiveDateFromLocal(this.targetPlayerId.ToString(), ImmersiveDateLocation.Town, out string msg), msg, "[PR.System.DateImmersion]"));
         y += height + spacing;
 
         this.AddButton(
@@ -215,11 +217,6 @@ public sealed class PlayerInteractionMenu : IClickableMenu
             () => this.RunAction(this.mod.HoldingHandsSystem.StopHoldingHandsFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.HoldingHands]"));
         y += height + spacing;
 
-        this.AddButton(
-            "Immersive Date (Town)",
-            new Rectangle(x, y, width, height),
-            this.GetImmersiveDateStartState,
-            () => this.RunAction(this.mod.DateImmersionSystem.StartImmersiveDateFromLocal(this.targetPlayerId.ToString(), ImmersiveDateLocation.Town, out string msg), msg, "[PR.System.DateImmersion]"));
     }
 
     private void AddButton(string label, Rectangle bounds, Func<(bool enabled, string disabledReason)> state, Action action)
@@ -256,15 +253,25 @@ public sealed class PlayerInteractionMenu : IClickableMenu
 
     private (bool enabled, string disabledReason) GetDateEventState()
     {
-        if (!this.mod.Config.EnableDateEvents)
+        if (!this.mod.Config.EnableImmersiveDates)
         {
-            return (false, "Disabled in config.");
+            return (false, "Immersive dates disabled in config.");
+        }
+
+        if (this.mod.DateImmersionSystem.IsActive)
+        {
+            return (false, "Another immersive date is already active.");
         }
 
         RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(this.mod.LocalPlayerId, this.targetPlayerId);
         if (relation is null || relation.State == RelationshipState.None)
         {
             return (false, "Requires Dating/Engaged/Married status.");
+        }
+
+        if (!relation.CanStartImmersiveDateToday(this.mod.GetCurrentDayNumber()))
+        {
+            return (false, "Immersive date already used today for this couple.");
         }
 
         return (true, string.Empty);
@@ -345,37 +352,6 @@ public sealed class PlayerInteractionMenu : IClickableMenu
         if (!this.mod.HoldingHandsSystem.IsHandsActiveBetween(this.mod.LocalPlayerId, this.targetPlayerId))
         {
             return (false, "No active holding hands session with this player.");
-        }
-
-        return (true, string.Empty);
-    }
-
-    private (bool enabled, string disabledReason) GetImmersiveDateStartState()
-    {
-        if (!this.mod.Config.EnableImmersiveDates)
-        {
-            return (false, "Immersive dates disabled in config.");
-        }
-
-        if (this.mod.DateImmersionSystem.IsActive)
-        {
-            return (false, "Another immersive date is already active.");
-        }
-
-        RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(this.mod.LocalPlayerId, this.targetPlayerId);
-        if (relation is null || relation.State == RelationshipState.None)
-        {
-            return (false, "Requires Dating/Engaged/Married status.");
-        }
-
-        if (!relation.CanStartImmersiveDateToday(this.mod.GetCurrentDayNumber()))
-        {
-            return (false, "Immersive date already used today for this couple.");
-        }
-
-        if (!this.mod.HeartsSystem.IsAtLeastHearts(this.mod.LocalPlayerId, this.targetPlayerId, this.mod.Config.ImmersiveDateMinHearts))
-        {
-            return (false, $"Requires at least {this.mod.Config.ImmersiveDateMinHearts} hearts.");
         }
 
         return (true, string.Empty);

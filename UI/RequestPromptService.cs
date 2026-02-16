@@ -82,13 +82,15 @@ public sealed class RequestPromptService
 
         PromptEntry next = this.queue.Dequeue();
         this.activeKey = next.Key;
+        int waitingCount = this.queue.Count;
 
         Game1.activeClickableMenu = new ConsentPromptMenu(
-            next.Title,
+            waitingCount > 0 ? $"{next.Title} ({waitingCount} queued)" : next.Title,
             next.Body,
             () => this.Resolve(next, accept: true),
             () => this.Resolve(next, accept: false),
             () => this.OnPromptClosed(next.Key));
+        Game1.playSound("newArtifact");
     }
 
     private void Resolve(PromptEntry prompt, bool accept)

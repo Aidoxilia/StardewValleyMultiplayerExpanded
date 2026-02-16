@@ -16,40 +16,7 @@ public sealed class DateEventController
 
     public bool StartDateFromLocal(string partnerToken, out string message)
     {
-        if (!this.mod.Config.EnableDateEvents)
-        {
-            message = "Date events are disabled in config.";
-            return false;
-        }
-
-        if (!this.mod.TryResolvePlayerToken(partnerToken, out Farmer? partner))
-        {
-            message = $"Player '{partnerToken}' not found.";
-            return false;
-        }
-
-        StartPairEventMessage payload = new()
-        {
-            PlayerAId = this.mod.LocalPlayerId,
-            PlayerBId = partner.UniqueMultiplayerID,
-            EventId = "date",
-            LocationName = "Town",
-            TileX = 24,
-            TileY = 62,
-            DialogText = $"{this.mod.LocalPlayerName} and {partner.Name} enjoyed a peaceful date in town."
-        };
-
-        if (this.mod.IsHostPlayer)
-        {
-            this.HandleStartDateRequestHost(payload, this.mod.LocalPlayerId);
-        }
-        else
-        {
-            this.mod.NetSync.SendToPlayer(MessageType.StartDateEvent, payload, Game1.MasterPlayer.UniqueMultiplayerID);
-        }
-
-        message = $"Date request sent to host for {partner.Name}.";
-        return true;
+        return this.mod.DateImmersionSystem.StartImmersiveDateFromLocal(partnerToken, ImmersiveDateLocation.Town, out message);
     }
 
     public bool StartImmersiveDateFromLocal(string partnerToken, ImmersiveDateLocation location, out string message)

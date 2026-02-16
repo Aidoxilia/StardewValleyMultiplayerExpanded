@@ -20,6 +20,7 @@ public sealed class ModEntry : Mod
     internal RomanceSaveData HostSaveData { get; set; } = new();
     internal NetSnapshot ClientSnapshot { get; set; } = new();
     internal string LastFarmWorkReport { get; set; } = string.Empty;
+    internal Dictionary<string, string> LastHeartEventsByPair { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     internal HudNotifier Notifier { get; private set; } = null!;
     internal SocialOverlay SocialOverlay { get; private set; } = null!;
@@ -99,6 +100,7 @@ public sealed class ModEntry : Mod
         this.HoldingHandsSystem.Reset();
         this.DateImmersionSystem.Reset();
         this.RequestPrompts.Clear();
+        this.LastHeartEventsByPair.Clear();
 
         if (this.IsHostPlayer)
         {
@@ -161,6 +163,7 @@ public sealed class ModEntry : Mod
         this.HoldingHandsSystem.Reset();
         this.DateImmersionSystem.Reset();
         this.RequestPrompts.Clear();
+        this.LastHeartEventsByPair.Clear();
         this.Monitor.Log("[PR.Core] Runtime state cleared on ReturnedToTitle.", LogLevel.Trace);
     }
 
@@ -265,5 +268,22 @@ public sealed class ModEntry : Mod
         }
 
         return best;
+    }
+
+    internal void RecordHeartEvent(string pairKey, string message)
+    {
+        if (string.IsNullOrWhiteSpace(pairKey) || string.IsNullOrWhiteSpace(message))
+        {
+            return;
+        }
+
+        this.LastHeartEventsByPair[pairKey] = message;
+    }
+
+    internal string GetLastHeartEvent(string pairKey)
+    {
+        return this.LastHeartEventsByPair.TryGetValue(pairKey, out string? message)
+            ? message
+            : string.Empty;
     }
 }

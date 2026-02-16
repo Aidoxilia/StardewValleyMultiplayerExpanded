@@ -16,8 +16,38 @@ public sealed class DateImmersionSystem
     private readonly Dictionary<DateStandType, List<StandOfferDefinition>> offersByStand = new();
     private readonly List<(DateStandType standType, Vector2 tile)> localStands = new();
     private readonly List<string> localNpcNames = new();
+    private readonly Dictionary<string, DateTime> lastAmbientBySession = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTime> lastDuoPulseBySession = new(StringComparer.OrdinalIgnoreCase);
     private string localRuntimeSessionId = string.Empty;
     private DateImmersionPublicState? localPublicState;
+
+    private static readonly string[] TownAmbientLines =
+    {
+        "A warm breeze passes through town. The date feels alive tonight.",
+        "You hear laughter near the fountain and soft music in the distance.",
+        "Lantern lights and footsteps make this evening feel special."
+    };
+
+    private static readonly string[] BeachAmbientLines =
+    {
+        "Waves crash softly while lanterns glow along the shore.",
+        "The salty air and ocean horizon make the moment feel calm.",
+        "You hear gulls, distant chatter, and the sea all at once."
+    };
+
+    private static readonly string[] ForestAmbientLines =
+    {
+        "Leaves rustle and fireflies glow between the trees.",
+        "The forest feels quiet, cozy, and perfect for a date.",
+        "A distant owl call makes the evening feel magical."
+    };
+
+    private static readonly string[] VendorShoutLines =
+    {
+        "Fresh treats! Gifts for someone special!",
+        "Roses and outfits ready for tonight!",
+        "Date specials available right now!"
+    };
 
     public DateImmersionSystem(ModEntry mod)
     {
@@ -50,6 +80,23 @@ public sealed class DateImmersionSystem
 
             return this.mod.ClientSnapshot.ActiveImmersiveDate?.IsActive == true;
         }
+    }
+
+    public int GetRequiredHeartsForLocation(ImmersiveDateLocation location)
+    {
+        if (!this.mod.Config.EnableHeartsSystem)
+        {
+            return 0;
+        }
+
+        return location == ImmersiveDateLocation.Town
+            ? 0
+            : Math.Max(0, this.mod.Config.ImmersiveDateMinHearts);
+    }
+
+    public int GetCompletionRewardPoints()
+    {
+        return Math.Max(1, this.mod.Config.HeartPointsPerHeart / 2);
     }
 
     public DateImmersionPublicState? GetActivePublicState()
@@ -90,6 +137,8 @@ public sealed class DateImmersionSystem
     public void Reset()
     {
         this.processedInteractionRequests.Clear();
+        this.lastAmbientBySession.Clear();
+        this.lastDuoPulseBySession.Clear();
         this.localPublicState = null;
         this.CleanupLocalRuntime();
     }
@@ -211,6 +260,9 @@ public sealed class DateImmersionSystem
         {
             return;
         }
+
+        this.TryBroadcastAmbientLineHost(state);
+        this.TryApplyDuoPulseHost(state);
 
         if (Game1.timeOfDay >= this.mod.Config.ImmersiveDateEndTime)
         {
@@ -481,9 +533,10 @@ public sealed class DateImmersionSystem
             return;
         }
 
-        if (!this.mod.HeartsSystem.IsAtLeastHearts(request.RequesterId, request.PartnerId, this.mod.Config.ImmersiveDateMinHearts))
+        int requiredHearts = this.GetRequiredHeartsForLocation(request.Location);
+        if (!this.mod.HeartsSystem.IsAtLeastHearts(request.RequesterId, request.PartnerId, requiredHearts))
         {
-            this.mod.NetSync.SendError(senderId, "hearts_low", $"Requires at least {this.mod.Config.ImmersiveDateMinHearts} hearts.");
+            this.mod.NetSync.SendError(senderId, "hearts_low", $"Requires at least {requiredHearts} hearts for {request.Location} date.");
             return;
         }
 
@@ -504,12 +557,16 @@ public sealed class DateImmersionSystem
         relation.LastImmersiveDateDay = day;
         relation.ImmersiveDateCount++;
         this.processedInteractionRequests.Clear();
+        this.lastAmbientBySession[state.SessionId] = DateTime.MinValue;
+        this.lastDuoPulseBySession[state.SessionId] = DateTime.MinValue;
         this.mod.MarkDataDirty("Immersive date started.", flushNow: true);
 
         string mapName = GetMapName(request.Location);
         Vector2 start = GetStartTile(request.Location);
         this.WarpParticipant(relation.PlayerAId, mapName, start);
         this.WarpParticipant(relation.PlayerBId, mapName, start + new Vector2(1f, 0f));
+        this.TryPlayEmote(relation.PlayerAId, 20);
+        this.TryPlayEmote(relation.PlayerBId, 20);
 
         this.localPublicState = this.BuildPublicState(state);
         this.EnsureLocalRuntime();
@@ -630,20 +687,18 @@ public sealed class DateImmersionSystem
     private void HandleTalkNpcHost(DateImmersionSaveState state, ImmersiveDateInteractionRequestMessage request)
     {
         int hearts = this.mod.HeartsSystem.GetHeartLevel(state.PlayerAId, state.PlayerBId);
-        string locationText = state.Location switch
-        {
-            ImmersiveDateLocation.Beach => "The sea breeze makes this date feel special.",
-            ImmersiveDateLocation.Forest => "The forest lights make this moment peaceful.",
-            _ => "Town feels lively tonight."
-        };
+        string locationText = this.PickAmbientLine(state.Location);
         string heartText = hearts switch
         {
-            >= 10 => "You two look inseparable.",
-            >= 6 => "You both seem really close.",
-            >= 3 => "You make a sweet pair.",
-            _ => "Keep spending time together."
+            >= 10 => "The crowd smiles: you two look inseparable.",
+            >= 6 => "People can tell you're getting really close.",
+            >= 3 => "You make a sweet pair out here.",
+            _ => "This could become something really special."
         };
-        string dialog = $"{locationText} {heartText}";
+        string vendorHint = this.random.NextDouble() > 0.5d
+            ? "A vendor suggests getting a gift for your partner."
+            : "Nearby NPCs mention your chemistry tonight.";
+        string dialog = $"{locationText} {heartText} {vendorHint}";
         int heartDelta = 0;
         if (this.TryGrantTalkBonus(state, request.ActorId))
         {
@@ -651,6 +706,7 @@ public sealed class DateImmersionSystem
             this.mod.HeartsSystem.AddPointsForPair(state.PairKey, heartDelta, "immersive_talk");
         }
 
+        this.TryPlayEmote(request.ActorId, 20);
         this.SendInteractionResult(state, request, success: true, dialog, 0, offeredToPartner: false, heartDelta);
     }
 
@@ -748,8 +804,10 @@ public sealed class DateImmersionSystem
 
         this.mod.MarkDataDirty("Immersive stand transaction committed.", flushNow: true);
         string resultMessage = offerToPartner
-            ? $"{actor.Name} offered {offer.DisplayName} to {receiver.Name} (-{offer.Price}g)."
+            ? $"{actor.Name} offered {offer.DisplayName} to {receiver.Name} (-{offer.Price}g). {receiver.Name} looks genuinely touched."
             : $"{actor.Name} bought {offer.DisplayName} (-{offer.Price}g).";
+        this.TryPlayEmote(actor.UniqueMultiplayerID, offerToPartner ? 20 : 12);
+        this.TryPlayEmote(receiver.UniqueMultiplayerID, offerToPartner ? 20 : 12);
         this.SendInteractionResult(state, request, success: true, resultMessage, offer.Price, offerToPartner, heartDelta);
         this.mod.NetSync.BroadcastSnapshotToAll();
     }
@@ -817,7 +875,7 @@ public sealed class DateImmersionSystem
         {
             if (completed)
             {
-                this.mod.HeartsSystem.AddPointsForPair(state.PairKey, Math.Abs(this.mod.Config.ImmersiveDatePointsReward), "immersive_date_complete");
+                this.mod.HeartsSystem.AddPointsForPair(state.PairKey, this.GetCompletionRewardPoints(), "immersive_date_complete");
             }
             else
             {
@@ -829,6 +887,8 @@ public sealed class DateImmersionSystem
 
         this.mod.HostSaveData.ActiveImmersiveDate = null;
         this.processedInteractionRequests.Clear();
+        this.lastAmbientBySession.Remove(state.SessionId);
+        this.lastDuoPulseBySession.Remove(state.SessionId);
         this.mod.MarkDataDirty($"Immersive date ended ({reason}).", flushNow: true);
         this.CleanupLocalRuntime();
         this.BroadcastImmersiveDateState(active: false, reason);
@@ -873,6 +933,8 @@ public sealed class DateImmersionSystem
         this.TrySpawnNpc(location, $"{prefix}_vendor_cloth", "Emily", "Emily", GetStandTile(DateStandType.Clothing, state.Location) + new Vector2(0f, 1f));
         this.TrySpawnNpc(location, $"{prefix}_walker_1", "Sam", "Sam", GetStartTile(state.Location) + new Vector2(2f, 1f));
         this.TrySpawnNpc(location, $"{prefix}_walker_2", "Leah", "Leah", GetStartTile(state.Location) + new Vector2(-2f, 1f));
+        this.TrySpawnNpc(location, $"{prefix}_walker_3", "Abigail", "Abigail", GetStartTile(state.Location) + new Vector2(4f, -1f));
+        this.TrySpawnNpc(location, $"{prefix}_walker_4", "Penny", "Penny", GetStartTile(state.Location) + new Vector2(-4f, -1f));
     }
 
     private void TrySpawnNpc(GameLocation location, string npcName, string spriteName, string portraitName, Vector2 tile)
@@ -917,13 +979,21 @@ public sealed class DateImmersionSystem
 
         foreach (NPC npc in location.characters.Where(p => p.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
         {
-            if (this.random.NextDouble() > 0.55d)
+            bool isVendor = npc.Name.Contains("_vendor_", StringComparison.OrdinalIgnoreCase);
+            double moveChance = isVendor ? 0.22d : 0.68d;
+            if (this.random.NextDouble() > moveChance)
             {
                 continue;
             }
 
-            Vector2 drift = new(this.random.Next(-1, 2) * 12f, this.random.Next(-1, 2) * 12f);
+            int px = isVendor ? this.random.Next(-1, 2) * 4 : this.random.Next(-1, 2) * 14;
+            int py = isVendor ? this.random.Next(-1, 2) * 4 : this.random.Next(-1, 2) * 14;
+            Vector2 drift = new(px, py);
             npc.Position += drift;
+            if (!isVendor && this.random.NextDouble() > 0.5d)
+            {
+                npc.FacingDirection = this.random.Next(0, 4);
+            }
         }
     }
 
@@ -995,6 +1065,124 @@ public sealed class DateImmersionSystem
         return location.characters.Any(npc =>
             npc.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
             && Vector2.Distance(npc.Tile, playerTile) <= maxDistance);
+    }
+
+    private void TryBroadcastAmbientLineHost(DateImmersionSaveState state)
+    {
+        DateTime now = DateTime.UtcNow;
+        if (!this.lastAmbientBySession.TryGetValue(state.SessionId, out DateTime last))
+        {
+            last = DateTime.MinValue;
+        }
+
+        if (now - last < TimeSpan.FromSeconds(16))
+        {
+            return;
+        }
+
+        if (this.random.NextDouble() > 0.45d)
+        {
+            this.lastAmbientBySession[state.SessionId] = now;
+            return;
+        }
+
+        string line = this.random.NextDouble() > 0.72d
+            ? VendorShoutLines[this.random.Next(VendorShoutLines.Length)]
+            : this.PickAmbientLine(state.Location);
+        this.lastAmbientBySession[state.SessionId] = now;
+
+        this.mod.NetSync.Broadcast(
+            MessageType.ImmersiveDateInteractionResult,
+            new ImmersiveDateInteractionResultMessage
+            {
+                RequestId = $"ambient_{Guid.NewGuid():N}",
+                Success = true,
+                Message = line
+            },
+            state.PlayerAId,
+            state.PlayerBId);
+    }
+
+    private void TryApplyDuoPulseHost(DateImmersionSaveState state)
+    {
+        if (!this.mod.HeartsSystem.IsAtLeastHearts(state.PlayerAId, state.PlayerBId, this.mod.Config.DuoBuffMinHearts))
+        {
+            return;
+        }
+
+        DateTime now = DateTime.UtcNow;
+        if (!this.lastDuoPulseBySession.TryGetValue(state.SessionId, out DateTime last))
+        {
+            last = DateTime.MinValue;
+        }
+
+        if (now - last < TimeSpan.FromSeconds(10))
+        {
+            return;
+        }
+
+        this.lastDuoPulseBySession[state.SessionId] = now;
+        bool changed = false;
+        foreach (long playerId in new[] { state.PlayerAId, state.PlayerBId })
+        {
+            Farmer? farmer = this.mod.FindFarmerById(playerId, includeOffline: false);
+            if (farmer is null)
+            {
+                continue;
+            }
+
+            float before = farmer.Stamina;
+            farmer.Stamina = Math.Min(farmer.MaxStamina, farmer.Stamina + 1f);
+            if (farmer.Stamina > before)
+            {
+                changed = true;
+            }
+        }
+
+        if (!changed)
+        {
+            return;
+        }
+
+        this.mod.NetSync.Broadcast(
+            MessageType.ImmersiveDateInteractionResult,
+            new ImmersiveDateInteractionResultMessage
+            {
+                RequestId = $"duopulse_{Guid.NewGuid():N}",
+                Success = true,
+                Message = "Your connection gives both of you a small energy boost (+1)."
+            },
+            state.PlayerAId,
+            state.PlayerBId);
+    }
+
+    private string PickAmbientLine(ImmersiveDateLocation location)
+    {
+        string[] pool = location switch
+        {
+            ImmersiveDateLocation.Beach => BeachAmbientLines,
+            ImmersiveDateLocation.Forest => ForestAmbientLines,
+            _ => TownAmbientLines
+        };
+
+        return pool[this.random.Next(pool.Length)];
+    }
+
+    private void TryPlayEmote(long playerId, int emoteId)
+    {
+        Farmer? farmer = this.mod.FindFarmerById(playerId, includeOffline: false);
+        if (farmer is null)
+        {
+            return;
+        }
+
+        try
+        {
+            farmer.doEmote(emoteId);
+        }
+        catch
+        {
+        }
     }
 
     private bool IsParticipant(DateImmersionSaveState state, long playerId)
@@ -1091,3 +1279,4 @@ public sealed class DateImmersionSystem
         this.mod.NetSync.SendToPlayer(MessageType.StartDateEvent, message, playerId);
     }
 }
+

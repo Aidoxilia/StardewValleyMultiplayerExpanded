@@ -21,7 +21,7 @@ public sealed class CommandRegistrar
         this.mod.Helper.ConsoleCommands.Add("pr.status", "Show relationship status. Usage: pr.status [playerNameOrId]", this.OnStatus);
         this.mod.Helper.ConsoleCommands.Add("pr.menu", "Open Player Romance menu.", (_, _) => Game1.activeClickableMenu = new UI.RomanceMenu(this.mod));
 
-        this.mod.Helper.ConsoleCommands.Add("pr.date.start", "Start date event. Usage: pr.date.start <playerNameOrId>", this.OnDateStart);
+        this.mod.Helper.ConsoleCommands.Add("pr.date.start", "Start Town date (immersive baseline). Usage: pr.date.start <playerNameOrId>", this.OnDateStart);
         this.mod.Helper.ConsoleCommands.Add("pr.marry.propose", "Send marriage proposal. Usage: pr.marry.propose <playerNameOrId>", this.OnProposeMarriage);
         this.mod.Helper.ConsoleCommands.Add("pr.marry.accept", "Accept pending marriage request.", this.OnMarriageAccept);
         this.mod.Helper.ConsoleCommands.Add("pr.marry.reject", "Reject pending marriage request.", this.OnMarriageReject);
