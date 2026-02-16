@@ -140,16 +140,16 @@ public sealed class PlayerInteractionMenu : IClickableMenu
 
             (bool enabled, _) = button.State();
             bool hover = button.Bounds.containsPoint(Game1.getMouseX(), Game1.getMouseY());
-            Color fill = enabled ? new Color(248, 239, 220) : new Color(215, 206, 193);
+            Color fill = enabled ? new Color(249, 241, 223) : new Color(224, 216, 203);
             if (enabled && hover)
             {
-                fill = new Color(255, 247, 229);
+                fill = new Color(255, 249, 235);
             }
 
-            IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), r.X, r.Y, r.Width, r.Height, fill, 4f, false);
-            string label = this.FitText(Game1.smallFont, button.Label, r.Width - 16);
+            IClickableMenu.drawTextureBox(b, r.X, r.Y, r.Width, r.Height, fill);
+            string label = this.FitText(Game1.smallFont, button.Label, r.Width - 36);
             int textY = r.Y + (r.Height - (int)Game1.smallFont.MeasureString(label).Y) / 2;
-            Utility.drawTextWithShadow(b, label, Game1.smallFont, new Vector2(r.X + 8, textY), Color.Black);
+            Utility.drawTextWithShadow(b, label, Game1.smallFont, new Vector2(r.X + 18, textY), Color.Black);
         }
 
         if (this.actionScrollMax > 0)
@@ -204,8 +204,8 @@ public sealed class PlayerInteractionMenu : IClickableMenu
         int inPad = 12;
         int top = 44;
         int footer = 24;
-        int buttonHeight = this.compact ? 40 : 44;
-        int step = buttonHeight + 9;
+        int buttonHeight = this.compact ? 44 : 50;
+        int step = buttonHeight + 11;
         this.actionsViewport = new Rectangle(this.actionsPanel.X + inPad, this.actionsPanel.Y + top, this.actionsPanel.Width - inPad * 2, Math.Max(56, this.actionsPanel.Height - top - footer));
         int visibleRows = Math.Max(1, (this.actionsViewport.Height + 9) / step);
         this.actionScrollMax = Math.Max(0, this.buttons.Count - visibleRows);

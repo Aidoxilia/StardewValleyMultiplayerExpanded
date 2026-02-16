@@ -214,9 +214,9 @@ public sealed class RomanceHubMenu : IClickableMenu
         int footer = 24;
         this.actionsViewport = new Rectangle(this.actionsPanel.X + inPad, this.actionsPanel.Y + top, this.actionsPanel.Width - inPad * 2, Math.Max(56, this.actionsPanel.Height - top - footer));
         int cols = this.compact || this.actionsViewport.Width < 620 ? 1 : 2;
-        int buttonH = this.compact ? 40 : 44;
-        int rowStepButtons = buttonH + 9;
-        int colGap = 12;
+        int buttonH = this.compact ? 44 : 50;
+        int rowStepButtons = buttonH + 11;
+        int colGap = 14;
         int buttonW = cols == 1 ? this.actionsViewport.Width : (this.actionsViewport.Width - colGap) / 2;
         int totalRows = (int)Math.Ceiling(this.actions.Count / (float)cols);
         int visibleRowsButtons = Math.Max(1, (this.actionsViewport.Height + 9) / rowStepButtons);
@@ -260,7 +260,7 @@ public sealed class RomanceHubMenu : IClickableMenu
             }
 
             bool selected = this.playerIds[i] == this.selectedPlayerId;
-            IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), r.X, r.Y, r.Width, r.Height, selected ? new Color(255, 236, 211) : new Color(252, 245, 226), 4f, false);
+            IClickableMenu.drawTextureBox(b, r.X, r.Y, r.Width, r.Height, selected ? new Color(255, 239, 212) : new Color(249, 242, 226));
             Farmer? farmer = this.mod.FindFarmerById(this.playerIds[i], true);
             Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, farmer?.Name ?? this.playerIds[i].ToString(), r.Width - 12), Game1.smallFont, new Vector2(r.X + 8, r.Y + 9), Color.Black);
         }
@@ -339,16 +339,16 @@ public sealed class RomanceHubMenu : IClickableMenu
 
             (bool enabled, _) = action.State();
             bool hover = action.Bounds.containsPoint(Game1.getMouseX(), Game1.getMouseY());
-            Color fill = enabled ? new Color(248, 239, 220) : new Color(215, 206, 193);
+            Color fill = enabled ? new Color(249, 241, 223) : new Color(224, 216, 203);
             if (enabled && hover)
             {
-                fill = new Color(255, 247, 229);
+                fill = new Color(255, 249, 235);
             }
 
-            IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), r.X, r.Y, r.Width, r.Height, fill, 4f, false);
-            string label = this.FitText(Game1.smallFont, action.Label, r.Width - 16);
+            IClickableMenu.drawTextureBox(b, r.X, r.Y, r.Width, r.Height, fill);
+            string label = this.FitText(Game1.smallFont, action.Label, r.Width - 36);
             int textY = r.Y + (r.Height - (int)Game1.smallFont.MeasureString(label).Y) / 2;
-            Utility.drawTextWithShadow(b, label, Game1.smallFont, new Vector2(r.X + 8, textY), Color.Black);
+            Utility.drawTextWithShadow(b, label, Game1.smallFont, new Vector2(r.X + 18, textY), Color.Black);
         }
 
         if (this.actionScrollMax > 0)
@@ -423,13 +423,13 @@ public sealed class RomanceHubMenu : IClickableMenu
             return false;
         }
 
-        if (!this.mod.IsPlayerOnline(this.selectedPlayerId))
+        if (!this.playerIds.Contains(this.selectedPlayerId))
         {
             return false;
         }
 
         target = this.mod.FindFarmerById(this.selectedPlayerId, true);
-        return true;
+        return target is not null || this.mod.IsPlayerOnline(this.selectedPlayerId);
     }
 
     private string GetActiveSessionText(long targetPlayerId)

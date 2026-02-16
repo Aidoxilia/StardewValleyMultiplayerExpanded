@@ -226,6 +226,11 @@ public sealed class ModEntry : Mod
             return true;
         }
 
+        if (Game1.getOnlineFarmers().Any(p => p.UniqueMultiplayerID == playerId))
+        {
+            return true;
+        }
+
         return this.Helper.Multiplayer.GetConnectedPlayers().Any(p => p.PlayerID == playerId);
     }
 

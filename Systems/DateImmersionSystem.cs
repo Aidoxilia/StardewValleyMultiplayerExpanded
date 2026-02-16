@@ -10,6 +10,10 @@ namespace PlayerRomance.Systems;
 
 public sealed class DateImmersionSystem
 {
+    private const string TempNpcFlagKey = "PlayerRomance/ImmersiveDateNpc";
+    private const string TempNpcSessionKey = "PlayerRomance/ImmersiveDateSession";
+    private const string TempNpcRoleKey = "PlayerRomance/ImmersiveDateRole";
+
     private readonly ModEntry mod;
     private readonly Random random = new();
     private readonly HashSet<string> processedInteractionRequests = new(StringComparer.OrdinalIgnoreCase);
@@ -20,6 +24,8 @@ public sealed class DateImmersionSystem
     private readonly Dictionary<string, DateTime> lastDuoPulseBySession = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, PendingImmersiveRequest> pendingRequests = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> joinGraceBySession = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTime> locationMismatchSinceBySession = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> startNoticeShownSessions = new(StringComparer.OrdinalIgnoreCase);
     private string localRuntimeSessionId = string.Empty;
     private DateImmersionPublicState? localPublicState;
 
@@ -151,6 +157,8 @@ public sealed class DateImmersionSystem
         this.lastDuoPulseBySession.Clear();
         this.pendingRequests.Clear();
         this.joinGraceBySession.Clear();
+        this.locationMismatchSinceBySession.Clear();
+        this.startNoticeShownSessions.Clear();
         this.localPublicState = null;
         this.CleanupLocalRuntime();
     }
@@ -234,13 +242,16 @@ public sealed class DateImmersionSystem
         }
 
         string locationName = GetMapName(state.Location);
-        if (!IsSameLocation(playerA, playerB, locationName))
+        bool inExpectedMap = AreParticipantsInExpectedMap(playerA, playerB, locationName);
+        bool sameLocationInstance = AreParticipantsOnSameLocationInstance(playerA, playerB);
+        if (!inExpectedMap || !sameLocationInstance)
         {
-            if (this.joinGraceBySession.TryGetValue(state.SessionId, out DateTime graceEnd) && DateTime.UtcNow < graceEnd)
+            DateTime now = DateTime.UtcNow;
+            Vector2 start = GetStartTile(state.Location);
+            if (this.joinGraceBySession.TryGetValue(state.SessionId, out DateTime graceEnd) && now < graceEnd)
             {
                 if (Game1.ticks % 30 == 0)
                 {
-                    Vector2 start = GetStartTile(state.Location);
                     this.WarpParticipant(state.PlayerAId, locationName, start);
                     this.WarpParticipant(state.PlayerBId, locationName, start + new Vector2(1f, 0f));
                 }
@@ -248,10 +259,32 @@ public sealed class DateImmersionSystem
                 return;
             }
 
-            this.EndImmersiveDateHost("location_changed", completed: false);
+            if (!this.locationMismatchSinceBySession.TryGetValue(state.SessionId, out DateTime mismatchSinceUtc))
+            {
+                mismatchSinceUtc = now;
+                this.locationMismatchSinceBySession[state.SessionId] = mismatchSinceUtc;
+            }
+
+            if (Game1.ticks % 45 == 0)
+            {
+                this.WarpParticipant(state.PlayerAId, locationName, start);
+                this.WarpParticipant(state.PlayerBId, locationName, start + new Vector2(1f, 0f));
+            }
+
+            if (now - mismatchSinceUtc > TimeSpan.FromSeconds(30))
+            {
+                string aLoc = playerA.currentLocation?.NameOrUniqueName ?? playerA.currentLocation?.Name ?? "null";
+                string bLoc = playerB.currentLocation?.NameOrUniqueName ?? playerB.currentLocation?.Name ?? "null";
+                this.mod.Monitor.Log(
+                    $"[PR.System.DateImmersion] Ending immersive date (location_changed timeout). Expected={locationName}, A={aLoc}, B={bLoc}.",
+                    LogLevel.Warn);
+                this.EndImmersiveDateHost("location_changed", completed: false);
+            }
+
             return;
         }
 
+        this.locationMismatchSinceBySession.Remove(state.SessionId);
         this.EnsureLocalRuntime();
         this.UpdateLocalNpcMovement();
 
@@ -283,6 +316,17 @@ public sealed class DateImmersionSystem
 
         DateImmersionSaveState state = this.mod.HostSaveData.ActiveImmersiveDate;
         if (!state.IsActive)
+        {
+            return;
+        }
+
+        Farmer? playerA = this.mod.FindFarmerById(state.PlayerAId, includeOffline: false);
+        Farmer? playerB = this.mod.FindFarmerById(state.PlayerBId, includeOffline: false);
+        string expectedLocation = GetMapName(state.Location);
+        if (playerA is null
+            || playerB is null
+            || !AreParticipantsInExpectedMap(playerA, playerB, expectedLocation)
+            || !AreParticipantsOnSameLocationInstance(playerA, playerB))
         {
             return;
         }
@@ -730,6 +774,7 @@ public sealed class DateImmersionSystem
         this.lastAmbientBySession[state.SessionId] = DateTime.MinValue;
         this.lastDuoPulseBySession[state.SessionId] = DateTime.MinValue;
         this.joinGraceBySession[state.SessionId] = DateTime.UtcNow.AddSeconds(10);
+        this.locationMismatchSinceBySession.Remove(state.SessionId);
         this.mod.MarkDataDirty("Immersive date started.", flushNow: true);
 
         string mapName = GetMapName(location);
@@ -742,9 +787,6 @@ public sealed class DateImmersionSystem
         this.localPublicState = this.BuildPublicState(state);
         this.EnsureLocalRuntime();
         this.BroadcastImmersiveDateState(active: true, "started");
-        this.mod.Notifier.NotifyInfo(
-            $"Immersive date started in {location}: {relation.PlayerAName} + {relation.PlayerBName}.",
-            "[PR.System.DateImmersion]");
     }
 
     private void CleanupExpiredPendingRequestsHost()
@@ -876,12 +918,16 @@ public sealed class DateImmersionSystem
 
     private void ApplyStateMessageLocal(ImmersiveDateStateMessage stateMessage)
     {
+        string previousSessionId = this.localPublicState?.SessionId ?? string.Empty;
+        bool hadActiveSession = this.localPublicState?.IsActive == true;
+
         if (stateMessage.Active && stateMessage.State is not null)
         {
             this.localPublicState = stateMessage.State;
             this.mod.ClientSnapshot.ActiveImmersiveDate = stateMessage.State;
             this.EnsureLocalRuntime();
-            if (this.IsParticipant(stateMessage.State, this.mod.LocalPlayerId))
+            if (this.IsParticipant(stateMessage.State, this.mod.LocalPlayerId)
+                && this.startNoticeShownSessions.Add(stateMessage.State.SessionId))
             {
                 this.mod.Notifier.NotifyInfo(
                     $"Immersive date started in {stateMessage.State.Location}. Right-click stands or date NPCs to interact.",
@@ -894,9 +940,17 @@ public sealed class DateImmersionSystem
         this.localPublicState = null;
         this.mod.ClientSnapshot.ActiveImmersiveDate = null;
         this.CleanupLocalRuntime();
-        this.mod.Notifier.NotifyInfo(
-            $"Immersive date ended ({stateMessage.Reason}).",
-            "[PR.System.DateImmersion]");
+        if (hadActiveSession)
+        {
+            if (!string.IsNullOrWhiteSpace(previousSessionId))
+            {
+                this.startNoticeShownSessions.Remove(previousSessionId);
+            }
+
+            this.mod.Notifier.NotifyInfo(
+                $"Immersive date ended ({stateMessage.Reason}).",
+                "[PR.System.DateImmersion]");
+        }
     }
 
     private void HandleTalkNpcHost(DateImmersionSaveState state, ImmersiveDateInteractionRequestMessage request)
@@ -1105,6 +1159,7 @@ public sealed class DateImmersionSystem
         this.lastAmbientBySession.Remove(state.SessionId);
         this.lastDuoPulseBySession.Remove(state.SessionId);
         this.joinGraceBySession.Remove(state.SessionId);
+        this.locationMismatchSinceBySession.Remove(state.SessionId);
         this.mod.MarkDataDirty($"Immersive date ended ({reason}).", flushNow: true);
         this.CleanupLocalRuntime();
         this.BroadcastImmersiveDateState(active: false, reason);
@@ -1143,38 +1198,41 @@ public sealed class DateImmersionSystem
             return;
         }
 
-        string prefix = this.GetNpcPrefix(state.SessionId);
-        this.TrySpawnNpc(location, $"{prefix}_vendor_ice", "Alex", "Alex", GetStandTile(DateStandType.IceCream, state.Location) + new Vector2(0f, 1f));
-        this.TrySpawnNpc(location, $"{prefix}_vendor_roses", "Haley", "Haley", GetStandTile(DateStandType.Roses, state.Location) + new Vector2(0f, 1f));
-        this.TrySpawnNpc(location, $"{prefix}_vendor_cloth", "Emily", "Emily", GetStandTile(DateStandType.Clothing, state.Location) + new Vector2(0f, 1f));
-        this.TrySpawnNpc(location, $"{prefix}_walker_1", "Sam", "Sam", GetStartTile(state.Location) + new Vector2(2f, 1f));
-        this.TrySpawnNpc(location, $"{prefix}_walker_2", "Leah", "Leah", GetStartTile(state.Location) + new Vector2(-2f, 1f));
-        this.TrySpawnNpc(location, $"{prefix}_walker_3", "Abigail", "Abigail", GetStartTile(state.Location) + new Vector2(4f, -1f));
-        this.TrySpawnNpc(location, $"{prefix}_walker_4", "Penny", "Penny", GetStartTile(state.Location) + new Vector2(-4f, -1f));
+        this.TrySpawnNpc(location, state.SessionId, "vendor_ice", "Alex", GetStandTile(DateStandType.IceCream, state.Location) + new Vector2(0f, 1f));
+        this.TrySpawnNpc(location, state.SessionId, "vendor_roses", "Haley", GetStandTile(DateStandType.Roses, state.Location) + new Vector2(0f, 1f));
+        this.TrySpawnNpc(location, state.SessionId, "vendor_cloth", "Emily", GetStandTile(DateStandType.Clothing, state.Location) + new Vector2(0f, 1f));
+        this.TrySpawnNpc(location, state.SessionId, "walker_1", "Sam", GetStartTile(state.Location) + new Vector2(2f, 1f));
+        this.TrySpawnNpc(location, state.SessionId, "walker_2", "Leah", GetStartTile(state.Location) + new Vector2(-2f, 1f));
+        this.TrySpawnNpc(location, state.SessionId, "walker_3", "Abigail", GetStartTile(state.Location) + new Vector2(4f, -1f));
+        this.TrySpawnNpc(location, state.SessionId, "walker_4", "Penny", GetStartTile(state.Location) + new Vector2(-4f, -1f));
     }
 
-    private void TrySpawnNpc(GameLocation location, string npcName, string spriteName, string portraitName, Vector2 tile)
+    private void TrySpawnNpc(GameLocation location, string sessionId, string role, string baseNpcName, Vector2 tile)
     {
         try
         {
-            if (location.characters.Any(p => p.Name.Equals(npcName, StringComparison.OrdinalIgnoreCase)))
+            if (location.characters.Any(p =>
+                p.modData.TryGetValue(TempNpcSessionKey, out string? existingSession)
+                && string.Equals(existingSession, sessionId, StringComparison.OrdinalIgnoreCase)
+                && p.modData.TryGetValue(TempNpcRoleKey, out string? existingRole)
+                && string.Equals(existingRole, role, StringComparison.OrdinalIgnoreCase)))
             {
                 return;
             }
 
-            AnimatedSprite sprite = new($"Characters\\{spriteName}");
-            Texture2D portrait = Game1.content.Load<Texture2D>($"Portraits\\{portraitName}");
-            NPC npc = new(sprite, tile * 64f, location.NameOrUniqueName, 2, npcName, false, portrait)
-            {
-                Name = npcName,
-                displayName = npcName
-            };
+            AnimatedSprite sprite = new($"Characters\\{baseNpcName}");
+            Texture2D portrait = Game1.content.Load<Texture2D>($"Portraits\\{baseNpcName}");
+            NPC npc = new(sprite, tile * 64f, location.NameOrUniqueName, 2, baseNpcName, false, portrait);
+            npc.modData[TempNpcFlagKey] = "1";
+            npc.modData[TempNpcSessionKey] = sessionId;
+            npc.modData[TempNpcRoleKey] = role;
+
             location.addCharacter(npc);
-            this.localNpcNames.Add(npcName);
+            this.localNpcNames.Add($"{sessionId}:{role}");
         }
         catch (Exception ex)
         {
-            this.mod.Monitor.Log($"[PR.System.DateImmersion] Failed to spawn temporary NPC '{npcName}': {ex.Message}", LogLevel.Trace);
+            this.mod.Monitor.Log($"[PR.System.DateImmersion] Failed to spawn temporary NPC '{role}' ({baseNpcName}): {ex.Message}", LogLevel.Trace);
         }
     }
 
@@ -1185,7 +1243,7 @@ public sealed class DateImmersionSystem
             return;
         }
 
-        string prefix = this.GetNpcPrefix(this.localPublicState.SessionId);
+        string sessionId = this.localPublicState.SessionId;
         string mapName = GetMapName(this.localPublicState.Location);
         GameLocation? location = Game1.getLocationFromName(mapName);
         if (location is null || Game1.ticks % 40 != 0)
@@ -1193,9 +1251,13 @@ public sealed class DateImmersionSystem
             return;
         }
 
-        foreach (NPC npc in location.characters.Where(p => p.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+        foreach (NPC npc in location.characters.Where(p =>
+                     p.modData.ContainsKey(TempNpcFlagKey)
+                     && p.modData.TryGetValue(TempNpcSessionKey, out string? npcSession)
+                     && string.Equals(npcSession, sessionId, StringComparison.OrdinalIgnoreCase)))
         {
-            bool isVendor = npc.Name.Contains("_vendor_", StringComparison.OrdinalIgnoreCase);
+            bool isVendor = npc.modData.TryGetValue(TempNpcRoleKey, out string? role)
+                && role.Contains("vendor_", StringComparison.OrdinalIgnoreCase);
             double moveChance = isVendor ? 0.22d : 0.68d;
             if (this.random.NextDouble() > moveChance)
             {
@@ -1223,16 +1285,14 @@ public sealed class DateImmersionSystem
             return;
         }
 
-        string prefix = !string.IsNullOrWhiteSpace(this.localRuntimeSessionId)
-            ? this.GetNpcPrefix(this.localRuntimeSessionId)
-            : "PR_Date_";
-
         foreach (GameLocation location in Game1.locations)
         {
             for (int i = location.characters.Count - 1; i >= 0; i--)
             {
                 NPC npc = location.characters[i];
-                if (npc.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || npc.Name.StartsWith("PR_Date_", StringComparison.OrdinalIgnoreCase))
+                bool tempTagged = npc.modData.ContainsKey(TempNpcFlagKey);
+                bool legacyNamed = npc.Name.StartsWith("PR_Date_", StringComparison.OrdinalIgnoreCase);
+                if (tempTagged || legacyNamed)
                 {
                     location.characters.RemoveAt(i);
                 }
@@ -1277,9 +1337,11 @@ public sealed class DateImmersionSystem
             return false;
         }
 
-        string prefix = this.GetNpcPrefix(this.localPublicState.SessionId);
+        string sessionId = this.localPublicState.SessionId;
         return location.characters.Any(npc =>
-            npc.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            npc.modData.ContainsKey(TempNpcFlagKey)
+            && npc.modData.TryGetValue(TempNpcSessionKey, out string? npcSession)
+            && string.Equals(npcSession, sessionId, StringComparison.OrdinalIgnoreCase)
             && Vector2.Distance(npc.Tile, playerTile) <= maxDistance);
     }
 
@@ -1411,10 +1473,27 @@ public sealed class DateImmersionSystem
         return state.PlayerAId == playerId || state.PlayerBId == playerId;
     }
 
-    private static bool IsSameLocation(Farmer playerA, Farmer playerB, string expectedLocationName)
+    private static bool AreParticipantsInExpectedMap(Farmer playerA, Farmer playerB, string expectedLocationName)
     {
-        return string.Equals(playerA.currentLocation?.NameOrUniqueName, expectedLocationName, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(playerB.currentLocation?.NameOrUniqueName, expectedLocationName, StringComparison.OrdinalIgnoreCase);
+        return IsFarmerInExpectedMap(playerA, expectedLocationName)
+            && IsFarmerInExpectedMap(playerB, expectedLocationName);
+    }
+
+    private static bool AreParticipantsOnSameLocationInstance(Farmer playerA, Farmer playerB)
+    {
+        string? locationA = playerA.currentLocation?.NameOrUniqueName ?? playerA.currentLocation?.Name;
+        string? locationB = playerB.currentLocation?.NameOrUniqueName ?? playerB.currentLocation?.Name;
+        return !string.IsNullOrWhiteSpace(locationA)
+            && !string.IsNullOrWhiteSpace(locationB)
+            && string.Equals(locationA, locationB, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsFarmerInExpectedMap(Farmer farmer, string expectedLocationName)
+    {
+        string? uniqueName = farmer.currentLocation?.NameOrUniqueName;
+        string? baseName = farmer.currentLocation?.Name;
+        return string.Equals(uniqueName, expectedLocationName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(baseName, expectedLocationName, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string GetMapName(ImmersiveDateLocation location)

@@ -1,4 +1,5 @@
 using PlayerRomance.Data;
+using PlayerRomance.Systems;
 using StardewModdingAPI;
 using StardewValley;
 
@@ -40,6 +41,8 @@ public sealed class CommandRegistrar
 
         this.mod.Helper.ConsoleCommands.Add("pr.hearts.status", "Show heart points/level with a player. Usage: pr.hearts.status <player>", this.OnHeartsStatus);
         this.mod.Helper.ConsoleCommands.Add("pr.hearts.add", "Debug add heart points (host). Usage: pr.hearts.add <player> <delta>", this.OnHeartsAdd);
+        this.mod.Helper.ConsoleCommands.Add("pr.hearts.max", "Cheat: set hearts to max with a player (host). Usage: pr.hearts.max <player>", this.OnHeartsMax);
+        this.mod.Helper.ConsoleCommands.Add("max_hearth", "Cheat alias for pr.hearts.max. Usage: max_hearth <player>", this.OnHeartsMax);
 
         this.mod.Helper.ConsoleCommands.Add("pr.date.immersive.start", "Start immersive date. Usage: pr.date.immersive.start <player> <town|beach|forest>", this.OnImmersiveDateStart);
         this.mod.Helper.ConsoleCommands.Add("pr.date.immersive.end", "End active immersive date.", this.OnImmersiveDateEnd);
@@ -393,6 +396,42 @@ public sealed class CommandRegistrar
 
         this.mod.HeartsSystem.AddPointsForPlayers(this.mod.LocalPlayerId, partner.UniqueMultiplayerID, delta, "debug_cmd");
         this.mod.Notifier.NotifyInfo($"Hearts delta applied: {delta}.", "[PR.System.Hearts]");
+    }
+
+    private void OnHeartsMax(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run max_hearth / pr.hearts.max.", "[PR.System.Hearts]");
+            return;
+        }
+
+        if (!this.mod.TryResolvePlayerToken(args[0], out Farmer? partner))
+        {
+            this.mod.Notifier.NotifyWarn($"Player '{args[0]}' not found.", "[PR.System.Hearts]");
+            return;
+        }
+
+        int maxPoints = Math.Max(1, this.mod.Config.MaxHearts * Math.Max(1, this.mod.Config.HeartPointsPerHeart));
+        RelationshipRecord relation = ConsentSystem.GetOrCreateRelationship(
+            this.mod.HostSaveData,
+            this.mod.LocalPlayerId,
+            partner.UniqueMultiplayerID,
+            this.mod.LocalPlayerName,
+            partner.Name);
+
+        int delta = maxPoints - relation.HeartPoints;
+        this.mod.HeartsSystem.AddPointsForPlayers(this.mod.LocalPlayerId, partner.UniqueMultiplayerID, delta, "debug_max_hearth");
+
+        int level = relation.GetHeartLevel(this.mod.Config.HeartPointsPerHeart, this.mod.Config.MaxHearts);
+        this.mod.Notifier.NotifyInfo(
+            $"Hearts with {partner.Name} forced to max: {relation.HeartPoints} pts (Lv {level}/{this.mod.Config.MaxHearts}).",
+            "[PR.System.Hearts]");
     }
 
     private void OnImmersiveDateStart(string command, string[] args)

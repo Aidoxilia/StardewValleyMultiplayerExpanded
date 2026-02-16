@@ -98,6 +98,7 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
 ### Hearts / Immersive / Hands (v2)
 - `pr.hearts.status <player>`
 - `pr.hearts.add <player> <delta>` (host debug)
+- `pr.hearts.max <player>` / `max_hearth <player>` (host cheat: set max hearts)
 - `pr.date.immersive.start <player> <town|beach|forest>`
 - `pr.date.immersive.end`
 - `pr.date.debug.spawnstands <town|beach|forest>` (host debug)
