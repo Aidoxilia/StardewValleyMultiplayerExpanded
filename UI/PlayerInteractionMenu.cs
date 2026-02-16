@@ -118,15 +118,16 @@ public sealed class PlayerInteractionMenu : IClickableMenu
 
         int x = this.infoPanel.X + 12;
         int y = this.infoPanel.Y + 42;
+        int line = this.compact ? 22 : 24;
         string targetName = target?.Name ?? $"Player {this.targetPlayerId}";
         Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Target: {targetName}", this.infoPanel.Width - 24), Game1.smallFont, new Vector2(x, y), Color.Black);
-        y += 22;
-        Utility.drawTextWithShadow(b, $"Relationship: {relation?.State.ToString() ?? "None"}", Game1.smallFont, new Vector2(x, y), Color.Black);
-        y += 22;
-        Utility.drawTextWithShadow(b, $"Hearts: {hearts}/{this.mod.Config.MaxHearts} ({heartPoints} pts)", Game1.smallFont, new Vector2(x, y), Color.Black);
-        y += 22;
+        y += line;
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Relationship: {relation?.State.ToString() ?? "None"}", this.infoPanel.Width - 24), Game1.smallFont, new Vector2(x, y), Color.Black);
+        y += line;
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Hearts: {hearts}/{this.mod.Config.MaxHearts} ({heartPoints} pts)", this.infoPanel.Width - 24), Game1.smallFont, new Vector2(x, y), Color.Black);
+        y += line;
         Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Gain hearts: dates, gifts, immersive talks.", this.infoPanel.Width - 24), Game1.smallFont, new Vector2(x, y), Color.Black);
-        y += 22;
+        y += line;
         Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Lose hearts: rejected requests, early leave.", this.infoPanel.Width - 24), Game1.smallFont, new Vector2(x, y), Color.Black);
 
         foreach (ActionButton button in this.buttons)
@@ -153,7 +154,10 @@ public sealed class PlayerInteractionMenu : IClickableMenu
 
         if (this.actionScrollMax > 0)
         {
-            Utility.drawTextWithShadow(b, $"Mouse wheel: {this.actionScroll + 1}/{this.actionScrollMax + 1}", Game1.tinyFont, new Vector2(this.actionsPanel.Right - 124, this.actionsPanel.Y + 18), new Color(85, 85, 85));
+            string hint = $"Mouse wheel: {this.actionScroll + 1}/{this.actionScrollMax + 1}";
+            int hintX = this.actionsPanel.Right - 12 - (int)Game1.tinyFont.MeasureString(hint).X;
+            int hintY = this.actionsPanel.Bottom - 8 - (int)Game1.tinyFont.MeasureString(hint).Y;
+            Utility.drawTextWithShadow(b, hint, Game1.tinyFont, new Vector2(hintX, hintY), Color.Black);
         }
 
         if (!string.IsNullOrWhiteSpace(this.hoverText))
@@ -179,7 +183,7 @@ public sealed class PlayerInteractionMenu : IClickableMenu
     private void BuildLayout()
     {
         int pad = this.width < 560 ? 10 : 14;
-        int header = 58;
+        int header = 64;
         this.compact = this.width < 560 || this.height < 640;
         this.infoPanel = new Rectangle(this.xPositionOnScreen + pad, this.yPositionOnScreen + header, this.width - pad * 2, this.compact ? 146 : 166);
         int actionsTop = this.infoPanel.Bottom + 10;
@@ -199,9 +203,10 @@ public sealed class PlayerInteractionMenu : IClickableMenu
     {
         int inPad = 12;
         int top = 44;
+        int footer = 24;
         int buttonHeight = this.compact ? 40 : 44;
         int step = buttonHeight + 9;
-        this.actionsViewport = new Rectangle(this.actionsPanel.X + inPad, this.actionsPanel.Y + top, this.actionsPanel.Width - inPad * 2, Math.Max(56, this.actionsPanel.Height - top - 10));
+        this.actionsViewport = new Rectangle(this.actionsPanel.X + inPad, this.actionsPanel.Y + top, this.actionsPanel.Width - inPad * 2, Math.Max(56, this.actionsPanel.Height - top - footer));
         int visibleRows = Math.Max(1, (this.actionsViewport.Height + 9) / step);
         this.actionScrollMax = Math.Max(0, this.buttons.Count - visibleRows);
         this.actionScroll = Math.Clamp(this.actionScroll, 0, this.actionScrollMax);
@@ -214,19 +219,21 @@ public sealed class PlayerInteractionMenu : IClickableMenu
 
     private void DrawHeader(SpriteBatch b)
     {
-        Rectangle strip = new(this.xPositionOnScreen + 14, this.yPositionOnScreen + 14, this.width - 80, 36);
+        Rectangle strip = new(this.xPositionOnScreen + 14, this.yPositionOnScreen + 14, this.width - 80, 38);
         b.Draw(Game1.staminaRect, strip, new Color(248, 227, 181));
-        Utility.drawTextWithShadow(b, "Player Actions", Game1.dialogueFont, new Vector2(strip.X + 8, strip.Y + 2), Color.Black);
-        int sx = strip.X + 214;
-        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Quick relationship actions with automatic gating", Math.Max(80, strip.Width - (sx - strip.X) - 8)), Game1.smallFont, new Vector2(sx, strip.Y + 8), Color.Black);
+        const string title = "Player Actions";
+        Utility.drawTextWithShadow(b, title, Game1.dialogueFont, new Vector2(strip.X + 8, strip.Y + 2), Color.Black);
+        int sx = strip.X + 14 + (int)Game1.dialogueFont.MeasureString(title).X + 20;
+        sx = Math.Min(sx, strip.Right - 120);
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Quick relationship actions with automatic gating", Math.Max(80, strip.Width - (sx - strip.X) - 8)), Game1.smallFont, new Vector2(sx, strip.Y + 10), Color.Black);
     }
 
     private void DrawPanelBox(SpriteBatch b, Rectangle panel, string title)
     {
         IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), panel.X, panel.Y, panel.Width, panel.Height, Color.White, 4f, false);
-        Rectangle strip = new(panel.X + 8, panel.Y + 8, panel.Width - 16, 28);
+        Rectangle strip = new(panel.X + 8, panel.Y + 8, panel.Width - 16, 30);
         b.Draw(Game1.staminaRect, strip, new Color(245, 224, 173));
-        Utility.drawTextWithShadow(b, title, Game1.smallFont, new Vector2(panel.X + 12, panel.Y + 12), Color.Black);
+        Utility.drawTextWithShadow(b, title, Game1.smallFont, new Vector2(panel.X + 12, panel.Y + 13), Color.Black);
     }
 
     private void BuildButtons()

@@ -166,7 +166,7 @@ public sealed class RomanceHubMenu : IClickableMenu
     {
         int pad = this.width < 860 ? 12 : 18;
         int gap = this.width < 860 ? 10 : 14;
-        int headerH = 62;
+        int headerH = 68;
         this.compact = this.width < 980 || this.height < 640;
         int contentTop = this.yPositionOnScreen + headerH;
         int contentHeight = this.height - headerH - pad;
@@ -211,7 +211,8 @@ public sealed class RomanceHubMenu : IClickableMenu
 
         int inPad = this.compact ? 12 : 14;
         int top = 44;
-        this.actionsViewport = new Rectangle(this.actionsPanel.X + inPad, this.actionsPanel.Y + top, this.actionsPanel.Width - inPad * 2, Math.Max(56, this.actionsPanel.Height - top - 10));
+        int footer = 24;
+        this.actionsViewport = new Rectangle(this.actionsPanel.X + inPad, this.actionsPanel.Y + top, this.actionsPanel.Width - inPad * 2, Math.Max(56, this.actionsPanel.Height - top - footer));
         int cols = this.compact || this.actionsViewport.Width < 620 ? 1 : 2;
         int buttonH = this.compact ? 40 : 44;
         int rowStepButtons = buttonH + 9;
@@ -231,12 +232,14 @@ public sealed class RomanceHubMenu : IClickableMenu
 
     private void DrawHeader(SpriteBatch b)
     {
-        Rectangle strip = new(this.xPositionOnScreen + 14, this.yPositionOnScreen + 14, this.width - 80, 36);
+        Rectangle strip = new(this.xPositionOnScreen + 14, this.yPositionOnScreen + 14, this.width - 80, 38);
         b.Draw(Game1.staminaRect, strip, new Color(248, 227, 181));
-        Utility.drawTextWithShadow(b, "Romance Hub", Game1.dialogueFont, new Vector2(strip.X + 8, strip.Y + 2), Color.Black);
+        const string title = "Romance Hub";
+        Utility.drawTextWithShadow(b, title, Game1.dialogueFont, new Vector2(strip.X + 8, strip.Y + 2), Color.Black);
         string text = this.compact ? $"Hotkey {this.mod.GetRomanceHubHotkey()} | Left-click player" : $"Hotkey {this.mod.GetRomanceHubHotkey()} | Left-click players for quick actions";
-        int sx = strip.X + 214;
-        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, text, Math.Max(60, strip.Right - sx - 8)), Game1.smallFont, new Vector2(sx, strip.Y + 8), Color.Black);
+        int sx = strip.X + 14 + (int)Game1.dialogueFont.MeasureString(title).X + 20;
+        sx = Math.Min(sx, strip.Right - 120);
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, text, Math.Max(60, strip.Right - sx - 8)), Game1.smallFont, new Vector2(sx, strip.Y + 10), Color.Black);
     }
 
     private void DrawPlayersPanel(SpriteBatch b)
@@ -274,13 +277,14 @@ public sealed class RomanceHubMenu : IClickableMenu
         int x = this.statusPanel.X + 14;
         int width = this.statusPanel.Width - 28;
         int y = this.statusPanel.Y + 44;
+        int line = this.compact ? 22 : 24;
 
         if (!this.TryGetSelectedTarget(out Farmer? target))
         {
             Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Select an online player on the left.", width), Game1.smallFont, new Vector2(x, y), Color.Black);
-            y += 24;
+            y += line;
             Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Hearts gain: completed dates, gifts, immersive talks.", width), Game1.smallFont, new Vector2(x, y), Color.Black);
-            y += 24;
+            y += line;
             Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Hearts loss: rejected request or early date end.", width), Game1.smallFont, new Vector2(x, y), Color.Black);
             return;
         }
@@ -300,13 +304,13 @@ public sealed class RomanceHubMenu : IClickableMenu
         }
 
         Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Target: {targetName}", width), Game1.smallFont, new Vector2(x, y), Color.Black);
-        y += 22;
-        Utility.drawTextWithShadow(b, $"Relationship: {relationState}", Game1.smallFont, new Vector2(x, y), Color.Black);
-        y += 22;
-        Utility.drawTextWithShadow(b, $"Hearts: {level}/{this.mod.Config.MaxHearts} ({points} pts)", Game1.smallFont, new Vector2(x, y), Color.Black);
-        y += 22;
-        Utility.drawTextWithShadow(b, $"Date cooldown: {cooldown}", Game1.smallFont, new Vector2(x, y), Color.Black);
-        y += 22;
+        y += line;
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Relationship: {relationState}", width), Game1.smallFont, new Vector2(x, y), Color.Black);
+        y += line;
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Hearts: {level}/{this.mod.Config.MaxHearts} ({points} pts)", width), Game1.smallFont, new Vector2(x, y), Color.Black);
+        y += line;
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Date cooldown: {cooldown}", width), Game1.smallFont, new Vector2(x, y), Color.Black);
+        y += line;
         Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Session: {this.GetActiveSessionText(targetId)}", width), Game1.smallFont, new Vector2(x, y), Color.Black);
 
         int barY = Math.Min(this.statusPanel.Bottom - 52, y + 8);
@@ -349,16 +353,19 @@ public sealed class RomanceHubMenu : IClickableMenu
 
         if (this.actionScrollMax > 0)
         {
-            Utility.drawTextWithShadow(b, $"Mouse wheel: {this.actionScroll + 1}/{this.actionScrollMax + 1}", Game1.tinyFont, new Vector2(this.actionsPanel.Right - 124, this.actionsPanel.Y + 18), Color.Black);
+            string hint = $"Mouse wheel: {this.actionScroll + 1}/{this.actionScrollMax + 1}";
+            int x = this.actionsPanel.Right - 12 - (int)Game1.tinyFont.MeasureString(hint).X;
+            int y = this.actionsPanel.Bottom - 8 - (int)Game1.tinyFont.MeasureString(hint).Y;
+            Utility.drawTextWithShadow(b, hint, Game1.tinyFont, new Vector2(x, y), Color.Black);
         }
     }
 
     private void DrawPanelBox(SpriteBatch b, Rectangle panel, string title)
     {
         IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), panel.X, panel.Y, panel.Width, panel.Height, Color.White, 4f, false);
-        Rectangle strip = new(panel.X + 8, panel.Y + 8, panel.Width - 16, 28);
+        Rectangle strip = new(panel.X + 8, panel.Y + 8, panel.Width - 16, 30);
         b.Draw(Game1.staminaRect, strip, new Color(245, 224, 173));
-        Utility.drawTextWithShadow(b, title, Game1.smallFont, new Vector2(panel.X + 12, panel.Y + 12), Color.Black);
+        Utility.drawTextWithShadow(b, title, Game1.smallFont, new Vector2(panel.X + 12, panel.Y + 13), Color.Black);
     }
 
     private void BuildActions()
