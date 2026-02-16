@@ -52,6 +52,7 @@ public sealed class RomanceHubMenu : IClickableMenu
 
     public override void receiveLeftClick(int x, int y, bool playSound = true)
     {
+        this.RefreshPlayers();
         this.LayoutRowsAndButtons();
         if (this.closeButton.containsPoint(x, y))
         {
@@ -63,7 +64,7 @@ public sealed class RomanceHubMenu : IClickableMenu
         for (int i = 0; i < this.playerRows.Count; i++)
         {
             Rectangle r = this.playerRows[i].bounds;
-            if (r.Contains(x, y) && r.Y >= this.playersPanel.Y + 42 && r.Bottom <= this.playersPanel.Bottom - 10)
+            if (r.Contains(x, y))
             {
                 this.selectedPlayerId = this.playerIds[i];
                 Game1.playSound("smallSelect");
@@ -232,10 +233,10 @@ public sealed class RomanceHubMenu : IClickableMenu
     {
         Rectangle strip = new(this.xPositionOnScreen + 14, this.yPositionOnScreen + 14, this.width - 80, 36);
         b.Draw(Game1.staminaRect, strip, new Color(248, 227, 181));
-        Utility.drawTextWithShadow(b, "Romance Hub", Game1.dialogueFont, new Vector2(strip.X + 8, strip.Y + 2), new Color(24, 24, 24));
-        string text = this.compact ? $"Hotkey {this.mod.GetRomanceHubHotkey()} | Right-click player" : $"Hotkey {this.mod.GetRomanceHubHotkey()} | Right-click players for quick actions";
+        Utility.drawTextWithShadow(b, "Romance Hub", Game1.dialogueFont, new Vector2(strip.X + 8, strip.Y + 2), Color.Black);
+        string text = this.compact ? $"Hotkey {this.mod.GetRomanceHubHotkey()} | Left-click player" : $"Hotkey {this.mod.GetRomanceHubHotkey()} | Left-click players for quick actions";
         int sx = strip.X + 214;
-        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, text, Math.Max(60, strip.Right - sx - 8)), Game1.smallFont, new Vector2(sx, strip.Y + 8), new Color(55, 74, 102));
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, text, Math.Max(60, strip.Right - sx - 8)), Game1.smallFont, new Vector2(sx, strip.Y + 8), Color.Black);
     }
 
     private void DrawPlayersPanel(SpriteBatch b)
@@ -243,7 +244,7 @@ public sealed class RomanceHubMenu : IClickableMenu
         this.DrawPanelBox(b, this.playersPanel, "Online Players");
         if (this.playerRows.Count == 0)
         {
-            Utility.drawTextWithShadow(b, "No other online players detected.", Game1.smallFont, new Vector2(this.playersPanel.X + 14, this.playersPanel.Y + 50), Color.DimGray);
+            Utility.drawTextWithShadow(b, "No other online players detected.", Game1.smallFont, new Vector2(this.playersPanel.X + 14, this.playersPanel.Y + 50), Color.Black);
             return;
         }
 
@@ -256,14 +257,14 @@ public sealed class RomanceHubMenu : IClickableMenu
             }
 
             bool selected = this.playerIds[i] == this.selectedPlayerId;
-            IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), r.X, r.Y, r.Width, r.Height, selected ? new Color(215, 235, 255) : new Color(252, 245, 226), 4f, false);
+            IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), r.X, r.Y, r.Width, r.Height, selected ? new Color(255, 236, 211) : new Color(252, 245, 226), 4f, false);
             Farmer? farmer = this.mod.FindFarmerById(this.playerIds[i], true);
-            Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, farmer?.Name ?? this.playerIds[i].ToString(), r.Width - 12), Game1.smallFont, new Vector2(r.X + 8, r.Y + 9), new Color(28, 28, 28));
+            Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, farmer?.Name ?? this.playerIds[i].ToString(), r.Width - 12), Game1.smallFont, new Vector2(r.X + 8, r.Y + 9), Color.Black);
         }
 
         if (this.playerScrollMax > 0)
         {
-            Utility.drawTextWithShadow(b, $"Scroll {this.playerScroll + 1}/{this.playerScrollMax + 1}", Game1.tinyFont, new Vector2(this.playersPanel.Right - 84, this.playersPanel.Y + 16), new Color(85, 85, 85));
+            Utility.drawTextWithShadow(b, $"Scroll {this.playerScroll + 1}/{this.playerScrollMax + 1}", Game1.tinyFont, new Vector2(this.playersPanel.Right - 84, this.playersPanel.Y + 16), Color.Black);
         }
     }
 
@@ -276,35 +277,37 @@ public sealed class RomanceHubMenu : IClickableMenu
 
         if (!this.TryGetSelectedTarget(out Farmer? target))
         {
-            Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Select an online player on the left.", width), Game1.smallFont, new Vector2(x, y), Color.DimGray);
+            Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Select an online player on the left.", width), Game1.smallFont, new Vector2(x, y), Color.Black);
             y += 24;
-            Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Hearts gain: completed dates, gifts, immersive talks.", width), Game1.smallFont, new Vector2(x, y), new Color(70, 90, 120));
+            Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Hearts gain: completed dates, gifts, immersive talks.", width), Game1.smallFont, new Vector2(x, y), Color.Black);
             y += 24;
-            Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Hearts loss: rejected request or early date end.", width), Game1.smallFont, new Vector2(x, y), new Color(104, 74, 74));
+            Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Hearts loss: rejected request or early date end.", width), Game1.smallFont, new Vector2(x, y), Color.Black);
             return;
         }
 
-        RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(this.mod.LocalPlayerId, target!.UniqueMultiplayerID);
+        long targetId = target?.UniqueMultiplayerID ?? this.selectedPlayerId;
+        string targetName = target?.Name ?? targetId.ToString();
+        RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(this.mod.LocalPlayerId, targetId);
         string relationState = relation?.State.ToString() ?? "None";
         int points = relation?.HeartPoints ?? 0;
         int level = relation?.GetHeartLevel(this.mod.Config.HeartPointsPerHeart, this.mod.Config.MaxHearts) ?? 0;
         string cooldown = relation is null ? "-" : relation.CanStartImmersiveDateToday(this.mod.GetCurrentDayNumber()) ? "Ready" : "Used today";
-        string pairKey = ConsentSystem.GetPairKey(this.mod.LocalPlayerId, target.UniqueMultiplayerID);
+        string pairKey = ConsentSystem.GetPairKey(this.mod.LocalPlayerId, targetId);
         string lastEvent = this.mod.GetLastHeartEvent(pairKey);
         if (string.IsNullOrWhiteSpace(lastEvent))
         {
             lastEvent = "No recent heart change.";
         }
 
-        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Target: {target.Name}", width), Game1.smallFont, new Vector2(x, y), Color.Black);
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Target: {targetName}", width), Game1.smallFont, new Vector2(x, y), Color.Black);
         y += 22;
         Utility.drawTextWithShadow(b, $"Relationship: {relationState}", Game1.smallFont, new Vector2(x, y), Color.Black);
         y += 22;
         Utility.drawTextWithShadow(b, $"Hearts: {level}/{this.mod.Config.MaxHearts} ({points} pts)", Game1.smallFont, new Vector2(x, y), Color.Black);
         y += 22;
-        Utility.drawTextWithShadow(b, $"Date cooldown: {cooldown}", Game1.smallFont, new Vector2(x, y), new Color(52, 70, 95));
+        Utility.drawTextWithShadow(b, $"Date cooldown: {cooldown}", Game1.smallFont, new Vector2(x, y), Color.Black);
         y += 22;
-        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Session: {this.GetActiveSessionText(target.UniqueMultiplayerID)}", width), Game1.smallFont, new Vector2(x, y), new Color(52, 70, 95));
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Session: {this.GetActiveSessionText(targetId)}", width), Game1.smallFont, new Vector2(x, y), Color.Black);
 
         int barY = Math.Min(this.statusPanel.Bottom - 52, y + 8);
         IClickableMenu.drawTextureBox(b, x, barY, width, 20, Color.White);
@@ -316,7 +319,7 @@ public sealed class RomanceHubMenu : IClickableMenu
             this.FitText(Game1.smallFont, $"Last heart event: {lastEvent}", width),
             Game1.smallFont,
             new Vector2(x, this.statusPanel.Bottom - 28),
-            new Color(84, 84, 84));
+            Color.Black);
     }
 
     private void DrawActionsPanel(SpriteBatch b)
@@ -341,12 +344,12 @@ public sealed class RomanceHubMenu : IClickableMenu
             IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), r.X, r.Y, r.Width, r.Height, fill, 4f, false);
             string label = this.FitText(Game1.smallFont, action.Label, r.Width - 16);
             int textY = r.Y + (r.Height - (int)Game1.smallFont.MeasureString(label).Y) / 2;
-            Utility.drawTextWithShadow(b, label, Game1.smallFont, new Vector2(r.X + 8, textY), enabled ? new Color(24, 24, 24) : new Color(92, 92, 92));
+            Utility.drawTextWithShadow(b, label, Game1.smallFont, new Vector2(r.X + 8, textY), Color.Black);
         }
 
         if (this.actionScrollMax > 0)
         {
-            Utility.drawTextWithShadow(b, $"Mouse wheel: {this.actionScroll + 1}/{this.actionScrollMax + 1}", Game1.tinyFont, new Vector2(this.actionsPanel.Right - 124, this.actionsPanel.Y + 18), new Color(85, 85, 85));
+            Utility.drawTextWithShadow(b, $"Mouse wheel: {this.actionScroll + 1}/{this.actionScrollMax + 1}", Game1.tinyFont, new Vector2(this.actionsPanel.Right - 124, this.actionsPanel.Y + 18), Color.Black);
         }
     }
 
@@ -355,7 +358,7 @@ public sealed class RomanceHubMenu : IClickableMenu
         IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), panel.X, panel.Y, panel.Width, panel.Height, Color.White, 4f, false);
         Rectangle strip = new(panel.X + 8, panel.Y + 8, panel.Width - 16, 28);
         b.Draw(Game1.staminaRect, strip, new Color(245, 224, 173));
-        Utility.drawTextWithShadow(b, title, Game1.smallFont, new Vector2(panel.X + 12, panel.Y + 12), new Color(45, 56, 84));
+        Utility.drawTextWithShadow(b, title, Game1.smallFont, new Vector2(panel.X + 12, panel.Y + 12), Color.Black);
     }
 
     private void BuildActions()
@@ -413,8 +416,13 @@ public sealed class RomanceHubMenu : IClickableMenu
             return false;
         }
 
+        if (!this.mod.IsPlayerOnline(this.selectedPlayerId))
+        {
+            return false;
+        }
+
         target = this.mod.FindFarmerById(this.selectedPlayerId, true);
-        return target is not null && this.mod.IsPlayerOnline(target.UniqueMultiplayerID);
+        return true;
     }
 
     private string GetActiveSessionText(long targetPlayerId)
@@ -441,7 +449,8 @@ public sealed class RomanceHubMenu : IClickableMenu
             return (false, "Select an online player.");
         }
 
-        RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(this.mod.LocalPlayerId, target!.UniqueMultiplayerID);
+        long targetId = target?.UniqueMultiplayerID ?? this.selectedPlayerId;
+        RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(this.mod.LocalPlayerId, targetId);
         return relation is not null && relation.State != RelationshipState.None ? (false, $"Already {relation.State}.") : (true, string.Empty);
     }
 
@@ -457,7 +466,8 @@ public sealed class RomanceHubMenu : IClickableMenu
             return (false, "Select an online player.");
         }
 
-        RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(this.mod.LocalPlayerId, target!.UniqueMultiplayerID);
+        long targetId = target?.UniqueMultiplayerID ?? this.selectedPlayerId;
+        RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(this.mod.LocalPlayerId, targetId);
         if (relation is null)
         {
             return (false, "Requires Dating first.");
@@ -483,7 +493,8 @@ public sealed class RomanceHubMenu : IClickableMenu
             return (false, "Select an online player.");
         }
 
-        return this.mod.MarriageSystem.IsMarried(this.mod.LocalPlayerId, target!.UniqueMultiplayerID) ? (true, string.Empty) : (false, "Requires Married state.");
+        long targetId = target?.UniqueMultiplayerID ?? this.selectedPlayerId;
+        return this.mod.MarriageSystem.IsMarried(this.mod.LocalPlayerId, targetId) ? (true, string.Empty) : (false, "Requires Married state.");
     }
 
     private (bool enabled, string disabledReason) GetCarryState()
@@ -493,7 +504,8 @@ public sealed class RomanceHubMenu : IClickableMenu
             return (false, "Select an online player.");
         }
 
-        return this.mod.CarrySystem.CanRequestCarry(this.mod.LocalPlayerId, target!.UniqueMultiplayerID, out string reason) ? (true, string.Empty) : (false, reason);
+        long targetId = target?.UniqueMultiplayerID ?? this.selectedPlayerId;
+        return this.mod.CarrySystem.CanRequestCarry(this.mod.LocalPlayerId, targetId, out string reason) ? (true, string.Empty) : (false, reason);
     }
 
     private (bool enabled, string disabledReason) GetCarryStopState()
@@ -503,7 +515,8 @@ public sealed class RomanceHubMenu : IClickableMenu
             return (false, "Select an online player.");
         }
 
-        return this.mod.CarrySystem.IsCarryActiveBetween(this.mod.LocalPlayerId, target!.UniqueMultiplayerID) ? (true, string.Empty) : (false, "No carry session with this player.");
+        long targetId = target?.UniqueMultiplayerID ?? this.selectedPlayerId;
+        return this.mod.CarrySystem.IsCarryActiveBetween(this.mod.LocalPlayerId, targetId) ? (true, string.Empty) : (false, "No carry session with this player.");
     }
 
     private (bool enabled, string disabledReason) GetHandsState()
@@ -513,7 +526,8 @@ public sealed class RomanceHubMenu : IClickableMenu
             return (false, "Select an online player.");
         }
 
-        return this.mod.HoldingHandsSystem.CanRequestHands(this.mod.LocalPlayerId, target!.UniqueMultiplayerID, out string reason) ? (true, string.Empty) : (false, reason);
+        long targetId = target?.UniqueMultiplayerID ?? this.selectedPlayerId;
+        return this.mod.HoldingHandsSystem.CanRequestHands(this.mod.LocalPlayerId, targetId, out string reason) ? (true, string.Empty) : (false, reason);
     }
 
     private (bool enabled, string disabledReason) GetHandsStopState()
@@ -523,7 +537,8 @@ public sealed class RomanceHubMenu : IClickableMenu
             return (false, "Select an online player.");
         }
 
-        return this.mod.HoldingHandsSystem.IsHandsActiveBetween(this.mod.LocalPlayerId, target!.UniqueMultiplayerID) ? (true, string.Empty) : (false, "No holding hands session with this player.");
+        long targetId = target?.UniqueMultiplayerID ?? this.selectedPlayerId;
+        return this.mod.HoldingHandsSystem.IsHandsActiveBetween(this.mod.LocalPlayerId, targetId) ? (true, string.Empty) : (false, "No holding hands session with this player.");
     }
 
     private (bool enabled, string disabledReason) GetImmersiveDateState(ImmersiveDateLocation location)
@@ -538,7 +553,8 @@ public sealed class RomanceHubMenu : IClickableMenu
             return (false, "Select an online player.");
         }
 
-        RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(this.mod.LocalPlayerId, target!.UniqueMultiplayerID);
+        long targetId = target?.UniqueMultiplayerID ?? this.selectedPlayerId;
+        RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(this.mod.LocalPlayerId, targetId);
         if (relation is null || relation.State == RelationshipState.None)
         {
             return (false, "Requires Dating/Engaged/Married.");
@@ -550,7 +566,7 @@ public sealed class RomanceHubMenu : IClickableMenu
         }
 
         int requiredHearts = this.mod.DateImmersionSystem.GetRequiredHeartsForLocation(location);
-        if (!this.mod.HeartsSystem.IsAtLeastHearts(this.mod.LocalPlayerId, target.UniqueMultiplayerID, requiredHearts))
+        if (!this.mod.HeartsSystem.IsAtLeastHearts(this.mod.LocalPlayerId, targetId, requiredHearts))
         {
             return (false, $"Requires {requiredHearts}+ hearts for {location}.");
         }

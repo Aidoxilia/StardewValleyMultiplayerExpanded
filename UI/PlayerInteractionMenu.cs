@@ -121,13 +121,13 @@ public sealed class PlayerInteractionMenu : IClickableMenu
         string targetName = target?.Name ?? $"Player {this.targetPlayerId}";
         Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Target: {targetName}", this.infoPanel.Width - 24), Game1.smallFont, new Vector2(x, y), Color.Black);
         y += 22;
-        Utility.drawTextWithShadow(b, $"Relationship: {relation?.State.ToString() ?? "None"}", Game1.smallFont, new Vector2(x, y), new Color(35, 55, 90));
+        Utility.drawTextWithShadow(b, $"Relationship: {relation?.State.ToString() ?? "None"}", Game1.smallFont, new Vector2(x, y), Color.Black);
         y += 22;
-        Utility.drawTextWithShadow(b, $"Hearts: {hearts}/{this.mod.Config.MaxHearts} ({heartPoints} pts)", Game1.smallFont, new Vector2(x, y), new Color(35, 55, 90));
+        Utility.drawTextWithShadow(b, $"Hearts: {hearts}/{this.mod.Config.MaxHearts} ({heartPoints} pts)", Game1.smallFont, new Vector2(x, y), Color.Black);
         y += 22;
-        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Gain hearts: dates, gifts, immersive talks.", this.infoPanel.Width - 24), Game1.smallFont, new Vector2(x, y), new Color(56, 86, 56));
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Gain hearts: dates, gifts, immersive talks.", this.infoPanel.Width - 24), Game1.smallFont, new Vector2(x, y), Color.Black);
         y += 22;
-        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Lose hearts: rejected requests, early leave.", this.infoPanel.Width - 24), Game1.smallFont, new Vector2(x, y), new Color(110, 70, 70));
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Lose hearts: rejected requests, early leave.", this.infoPanel.Width - 24), Game1.smallFont, new Vector2(x, y), Color.Black);
 
         foreach (ActionButton button in this.buttons)
         {
@@ -148,7 +148,7 @@ public sealed class PlayerInteractionMenu : IClickableMenu
             IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), r.X, r.Y, r.Width, r.Height, fill, 4f, false);
             string label = this.FitText(Game1.smallFont, button.Label, r.Width - 16);
             int textY = r.Y + (r.Height - (int)Game1.smallFont.MeasureString(label).Y) / 2;
-            Utility.drawTextWithShadow(b, label, Game1.smallFont, new Vector2(r.X + 8, textY), enabled ? new Color(24, 24, 24) : new Color(92, 92, 92));
+            Utility.drawTextWithShadow(b, label, Game1.smallFont, new Vector2(r.X + 8, textY), Color.Black);
         }
 
         if (this.actionScrollMax > 0)
@@ -216,8 +216,9 @@ public sealed class PlayerInteractionMenu : IClickableMenu
     {
         Rectangle strip = new(this.xPositionOnScreen + 14, this.yPositionOnScreen + 14, this.width - 80, 36);
         b.Draw(Game1.staminaRect, strip, new Color(248, 227, 181));
-        Utility.drawTextWithShadow(b, "Player Actions", Game1.dialogueFont, new Vector2(strip.X + 8, strip.Y + 2), new Color(24, 24, 24));
-        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Quick relationship actions with automatic gating", Math.Max(80, strip.Width - 230)), Game1.smallFont, new Vector2(strip.X + 214, strip.Y + 8), new Color(55, 74, 102));
+        Utility.drawTextWithShadow(b, "Player Actions", Game1.dialogueFont, new Vector2(strip.X + 8, strip.Y + 2), Color.Black);
+        int sx = strip.X + 214;
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Quick relationship actions with automatic gating", Math.Max(80, strip.Width - (sx - strip.X) - 8)), Game1.smallFont, new Vector2(sx, strip.Y + 8), Color.Black);
     }
 
     private void DrawPanelBox(SpriteBatch b, Rectangle panel, string title)
@@ -225,7 +226,7 @@ public sealed class PlayerInteractionMenu : IClickableMenu
         IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), panel.X, panel.Y, panel.Width, panel.Height, Color.White, 4f, false);
         Rectangle strip = new(panel.X + 8, panel.Y + 8, panel.Width - 16, 28);
         b.Draw(Game1.staminaRect, strip, new Color(245, 224, 173));
-        Utility.drawTextWithShadow(b, title, Game1.smallFont, new Vector2(panel.X + 12, panel.Y + 12), new Color(45, 56, 84));
+        Utility.drawTextWithShadow(b, title, Game1.smallFont, new Vector2(panel.X + 12, panel.Y + 12), Color.Black);
     }
 
     private void BuildButtons()
