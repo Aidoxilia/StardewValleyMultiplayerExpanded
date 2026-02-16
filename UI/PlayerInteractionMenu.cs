@@ -12,31 +12,37 @@ public sealed class PlayerInteractionMenu : IClickableMenu
     private readonly long targetPlayerId;
     private readonly List<ActionButton> buttons = new();
     private readonly ClickableTextureComponent closeButton;
+
+    private Rectangle infoPanel;
+    private Rectangle actionsPanel;
+    private Rectangle actionsViewport;
+    private bool compact;
+    private int actionScroll;
+    private int actionScrollMax;
     private string hoverText = string.Empty;
 
     private sealed class ActionButton
     {
-        public ClickableComponent Bounds { get; set; } = null!;
-        public string Label { get; set; } = string.Empty;
-        public Func<(bool enabled, string disabledReason)> GetState { get; set; } = null!;
-        public Action Execute { get; set; } = null!;
+        public string Label = string.Empty;
+        public ClickableComponent Bounds = new(new Rectangle(0, 0, 0, 0), string.Empty);
+        public Func<(bool enabled, string disabledReason)> State = null!;
+        public Action Execute = null!;
     }
 
     public PlayerInteractionMenu(ModEntry mod, long targetPlayerId)
-        : base(Game1.uiViewport.Width / 2 - 260, Game1.uiViewport.Height / 2 - 360, 520, 720, true)
+        : base((Game1.uiViewport.Width - WidthForViewport()) / 2, (Game1.uiViewport.Height - HeightForViewport()) / 2, WidthForViewport(), HeightForViewport(), true)
     {
         this.mod = mod;
         this.targetPlayerId = targetPlayerId;
-        this.closeButton = new ClickableTextureComponent(
-            new Rectangle(this.xPositionOnScreen + this.width - 56, this.yPositionOnScreen + 12, 40, 40),
-            Game1.mouseCursors,
-            new Rectangle(337, 494, 12, 12),
-            3.4f);
+        this.closeButton = new ClickableTextureComponent(new Rectangle(this.xPositionOnScreen + this.width - 56, this.yPositionOnScreen + 12, 40, 40), Game1.mouseCursors, new Rectangle(337, 494, 12, 12), 3.4f);
+        this.BuildLayout();
         this.BuildButtons();
+        this.LayoutButtons();
     }
 
     public override void receiveLeftClick(int x, int y, bool playSound = true)
     {
+        this.LayoutButtons();
         if (this.closeButton.containsPoint(x, y))
         {
             Game1.playSound("bigDeSelect");
@@ -46,38 +52,51 @@ public sealed class PlayerInteractionMenu : IClickableMenu
 
         foreach (ActionButton button in this.buttons)
         {
-            if (!button.Bounds.containsPoint(x, y))
+            if (!button.Bounds.containsPoint(x, y) || !this.IsButtonVisible(button.Bounds.bounds))
             {
                 continue;
             }
 
-            (bool enabled, _) = button.GetState();
+            (bool enabled, string reason) = button.State();
             if (!enabled)
             {
                 Game1.playSound("cancel");
+                this.mod.Notifier.NotifyWarn(reason, "[PR.UI.PlayerActions]");
                 return;
             }
 
             Game1.playSound("smallSelect");
             button.Execute();
-            Game1.activeClickableMenu = null;
             return;
         }
 
         base.receiveLeftClick(x, y, playSound);
     }
 
+    public override void receiveScrollWheelAction(int direction)
+    {
+        this.LayoutButtons();
+        if (this.actionsViewport.Contains(Game1.getMouseX(), Game1.getMouseY()) && this.actionScrollMax > 0)
+        {
+            this.actionScroll = Math.Clamp(this.actionScroll + (direction > 0 ? -1 : 1), 0, this.actionScrollMax);
+            return;
+        }
+
+        base.receiveScrollWheelAction(direction);
+    }
+
     public override void performHoverAction(int x, int y)
     {
+        this.LayoutButtons();
         this.hoverText = string.Empty;
         foreach (ActionButton button in this.buttons)
         {
-            if (!button.Bounds.containsPoint(x, y))
+            if (!button.Bounds.containsPoint(x, y) || !this.IsButtonVisible(button.Bounds.bounds))
             {
                 continue;
             }
 
-            (bool enabled, string disabledReason) = button.GetState();
+            (bool enabled, string disabledReason) = button.State();
             this.hoverText = enabled ? button.Label : disabledReason;
             break;
         }
@@ -85,50 +104,56 @@ public sealed class PlayerInteractionMenu : IClickableMenu
 
     public override void draw(SpriteBatch b)
     {
+        this.LayoutButtons();
         Farmer? target = this.mod.FindFarmerById(this.targetPlayerId, includeOffline: true);
-        Game1.drawDialogueBox(this.xPositionOnScreen, this.yPositionOnScreen, this.width, this.height, false, true);
-        this.closeButton.draw(b);
-
-        int x = this.xPositionOnScreen + 28;
-        int y = this.yPositionOnScreen + 24;
-        b.DrawString(Game1.dialogueFont, "Player Actions", new Vector2(x, y), Color.Black);
-        y += 52;
-
-        string targetName = target?.Name ?? $"Player {this.targetPlayerId}";
-        b.DrawString(Game1.smallFont, $"Target: {targetName}", new Vector2(x, y), Color.DarkSlateBlue);
-        y += 28;
-
         RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(this.mod.LocalPlayerId, this.targetPlayerId);
-        string relationText = relation?.State.ToString() ?? "None";
-        b.DrawString(Game1.smallFont, $"Relationship: {relationText}", new Vector2(x, y), Color.DarkSlateBlue);
-        y += 24;
         int hearts = relation?.GetHeartLevel(this.mod.Config.HeartPointsPerHeart, this.mod.Config.MaxHearts) ?? 0;
         int heartPoints = relation?.HeartPoints ?? 0;
-        b.DrawString(Game1.smallFont, $"Hearts: {hearts}/{this.mod.Config.MaxHearts} ({heartPoints} pts)", new Vector2(x, y), Color.DarkSlateBlue);
-        y += 24;
-        b.DrawString(Game1.smallFont, "Gain: dates/gifts/talks | Loss: reject/early-end", new Vector2(x, y), Color.DarkSlateGray);
-        y += 24;
+
+        Game1.drawDialogueBox(this.xPositionOnScreen, this.yPositionOnScreen, this.width, this.height, false, true);
+        this.closeButton.draw(b);
+        this.DrawHeader(b);
+        this.DrawPanelBox(b, this.infoPanel, "Target Status");
+        this.DrawPanelBox(b, this.actionsPanel, "Actions");
+
+        int x = this.infoPanel.X + 12;
+        int y = this.infoPanel.Y + 42;
+        string targetName = target?.Name ?? $"Player {this.targetPlayerId}";
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, $"Target: {targetName}", this.infoPanel.Width - 24), Game1.smallFont, new Vector2(x, y), Color.Black);
+        y += 22;
+        Utility.drawTextWithShadow(b, $"Relationship: {relation?.State.ToString() ?? "None"}", Game1.smallFont, new Vector2(x, y), new Color(35, 55, 90));
+        y += 22;
+        Utility.drawTextWithShadow(b, $"Hearts: {hearts}/{this.mod.Config.MaxHearts} ({heartPoints} pts)", Game1.smallFont, new Vector2(x, y), new Color(35, 55, 90));
+        y += 22;
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Gain hearts: dates, gifts, immersive talks.", this.infoPanel.Width - 24), Game1.smallFont, new Vector2(x, y), new Color(56, 86, 56));
+        y += 22;
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Lose hearts: rejected requests, early leave.", this.infoPanel.Width - 24), Game1.smallFont, new Vector2(x, y), new Color(110, 70, 70));
 
         foreach (ActionButton button in this.buttons)
         {
-            (bool enabled, _) = button.GetState();
-            Color boxColor = enabled ? Color.White : Color.Gray;
-            IClickableMenu.drawTextureBox(
-                b,
-                Game1.mouseCursors,
-                new Rectangle(384, 373, 18, 18),
-                button.Bounds.bounds.X,
-                button.Bounds.bounds.Y,
-                button.Bounds.bounds.Width,
-                button.Bounds.bounds.Height,
-                boxColor,
-                4f,
-                false);
-            b.DrawString(
-                Game1.smallFont,
-                button.Label,
-                new Vector2(button.Bounds.bounds.X + 16, button.Bounds.bounds.Y + 12),
-                enabled ? Color.Black : Color.DarkGray);
+            Rectangle r = button.Bounds.bounds;
+            if (!this.IsButtonVisible(r))
+            {
+                continue;
+            }
+
+            (bool enabled, _) = button.State();
+            bool hover = button.Bounds.containsPoint(Game1.getMouseX(), Game1.getMouseY());
+            Color fill = enabled ? new Color(248, 239, 220) : new Color(215, 206, 193);
+            if (enabled && hover)
+            {
+                fill = new Color(255, 247, 229);
+            }
+
+            IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), r.X, r.Y, r.Width, r.Height, fill, 4f, false);
+            string label = this.FitText(Game1.smallFont, button.Label, r.Width - 16);
+            int textY = r.Y + (r.Height - (int)Game1.smallFont.MeasureString(label).Y) / 2;
+            Utility.drawTextWithShadow(b, label, Game1.smallFont, new Vector2(r.X + 8, textY), enabled ? new Color(24, 24, 24) : new Color(92, 92, 92));
+        }
+
+        if (this.actionScrollMax > 0)
+        {
+            Utility.drawTextWithShadow(b, $"Mouse wheel: {this.actionScroll + 1}/{this.actionScrollMax + 1}", Game1.tinyFont, new Vector2(this.actionsPanel.Right - 124, this.actionsPanel.Y + 18), new Color(85, 85, 85));
         }
 
         if (!string.IsNullOrWhiteSpace(this.hoverText))
@@ -139,95 +164,93 @@ public sealed class PlayerInteractionMenu : IClickableMenu
         this.drawMouse(b);
     }
 
-    private void BuildButtons()
+    private static int WidthForViewport()
     {
-        int x = this.xPositionOnScreen + 26;
-        int y = this.yPositionOnScreen + 164;
-        int width = this.width - 52;
-        const int height = 40;
-        const int spacing = 10;
-
-        this.AddButton(
-            "Accept Pending",
-            new Rectangle(x, y, width, height),
-            this.GetPendingResolutionState,
-            () => this.RunAction(this.ResolvePendingFromTarget(true, out string msg), msg, "[PR.Core]"));
-        y += height + spacing;
-
-        this.AddButton(
-            "Reject Pending",
-            new Rectangle(x, y, width, height),
-            this.GetPendingResolutionState,
-            () => this.RunAction(this.ResolvePendingFromTarget(false, out string msg), msg, "[PR.Core]"));
-        y += height + spacing;
-
-        this.AddButton(
-            "Propose Dating",
-            new Rectangle(x, y, width, height),
-            this.GetDatingProposalState,
-            () => this.RunAction(this.mod.DatingSystem.RequestDatingFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.Dating]"));
-        y += height + spacing;
-
-        this.AddButton(
-            "Start Date (Town)",
-            new Rectangle(x, y, width, height),
-            this.GetDateEventState,
-            () => this.RunAction(this.mod.DateImmersionSystem.StartImmersiveDateFromLocal(this.targetPlayerId.ToString(), ImmersiveDateLocation.Town, out string msg), msg, "[PR.System.DateImmersion]"));
-        y += height + spacing;
-
-        this.AddButton(
-            "Propose Marriage",
-            new Rectangle(x, y, width, height),
-            this.GetMarriageProposalState,
-            () => this.RunAction(this.mod.MarriageSystem.RequestMarriageFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.Marriage]"));
-        y += height + spacing;
-
-        this.AddButton(
-            "Try For Baby",
-            new Rectangle(x, y, width, height),
-            this.GetTryForBabyState,
-            () => this.RunAction(this.mod.PregnancySystem.RequestTryForBabyFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.Pregnancy]"));
-        y += height + spacing;
-
-        this.AddButton(
-            "Carry Player",
-            new Rectangle(x, y, width, height),
-            this.GetCarryStartState,
-            () => this.RunAction(this.mod.CarrySystem.RequestCarryFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.Carry]"));
-        y += height + spacing;
-
-        this.AddButton(
-            "Stop Carry",
-            new Rectangle(x, y, width, height),
-            this.GetCarryStopState,
-            () => this.RunAction(this.mod.CarrySystem.StopCarryFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.Carry]"));
-        y += height + spacing;
-
-        this.AddButton(
-            "Start Holding Hands",
-            new Rectangle(x, y, width, height),
-            this.GetHoldingHandsStartState,
-            () => this.RunAction(this.mod.HoldingHandsSystem.RequestHoldingHandsFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.HoldingHands]"));
-        y += height + spacing;
-
-        this.AddButton(
-            "Stop Holding Hands",
-            new Rectangle(x, y, width, height),
-            this.GetHoldingHandsStopState,
-            () => this.RunAction(this.mod.HoldingHandsSystem.StopHoldingHandsFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.HoldingHands]"));
-        y += height + spacing;
-
+        int preferred = Math.Min(760, (int)(Game1.uiViewport.Width * 0.74f));
+        return Math.Min(preferred, Math.Max(480, Game1.uiViewport.Width - 10));
     }
 
-    private void AddButton(string label, Rectangle bounds, Func<(bool enabled, string disabledReason)> state, Action action)
+    private static int HeightForViewport()
     {
-        this.buttons.Add(new ActionButton
+        int preferred = Math.Min(860, (int)(Game1.uiViewport.Height * 0.9f));
+        return Math.Min(preferred, Math.Max(500, Game1.uiViewport.Height - 10));
+    }
+
+    private void BuildLayout()
+    {
+        int pad = this.width < 560 ? 10 : 14;
+        int header = 58;
+        this.compact = this.width < 560 || this.height < 640;
+        this.infoPanel = new Rectangle(this.xPositionOnScreen + pad, this.yPositionOnScreen + header, this.width - pad * 2, this.compact ? 146 : 166);
+        int actionsTop = this.infoPanel.Bottom + 10;
+        int actionsHeight = this.yPositionOnScreen + this.height - pad - actionsTop;
+        if (actionsHeight < 150)
         {
-            Bounds = new ClickableComponent(bounds, label),
-            Label = label,
-            GetState = state,
-            Execute = action
-        });
+            int deficit = 150 - actionsHeight;
+            this.infoPanel.Height = Math.Max(106, this.infoPanel.Height - deficit);
+            actionsTop = this.infoPanel.Bottom + 10;
+            actionsHeight = this.yPositionOnScreen + this.height - pad - actionsTop;
+        }
+
+        this.actionsPanel = new Rectangle(this.xPositionOnScreen + pad, actionsTop, this.width - pad * 2, actionsHeight);
+    }
+
+    private void LayoutButtons()
+    {
+        int inPad = 12;
+        int top = 44;
+        int buttonHeight = this.compact ? 40 : 44;
+        int step = buttonHeight + 9;
+        this.actionsViewport = new Rectangle(this.actionsPanel.X + inPad, this.actionsPanel.Y + top, this.actionsPanel.Width - inPad * 2, Math.Max(56, this.actionsPanel.Height - top - 10));
+        int visibleRows = Math.Max(1, (this.actionsViewport.Height + 9) / step);
+        this.actionScrollMax = Math.Max(0, this.buttons.Count - visibleRows);
+        this.actionScroll = Math.Clamp(this.actionScroll, 0, this.actionScrollMax);
+
+        for (int i = 0; i < this.buttons.Count; i++)
+        {
+            this.buttons[i].Bounds.bounds = new Rectangle(this.actionsViewport.X, this.actionsViewport.Y + (i - this.actionScroll) * step, this.actionsViewport.Width, buttonHeight);
+        }
+    }
+
+    private void DrawHeader(SpriteBatch b)
+    {
+        Rectangle strip = new(this.xPositionOnScreen + 14, this.yPositionOnScreen + 14, this.width - 80, 36);
+        b.Draw(Game1.staminaRect, strip, new Color(248, 227, 181));
+        Utility.drawTextWithShadow(b, "Player Actions", Game1.dialogueFont, new Vector2(strip.X + 8, strip.Y + 2), new Color(24, 24, 24));
+        Utility.drawTextWithShadow(b, this.FitText(Game1.smallFont, "Quick relationship actions with automatic gating", Math.Max(80, strip.Width - 230)), Game1.smallFont, new Vector2(strip.X + 214, strip.Y + 8), new Color(55, 74, 102));
+    }
+
+    private void DrawPanelBox(SpriteBatch b, Rectangle panel, string title)
+    {
+        IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), panel.X, panel.Y, panel.Width, panel.Height, Color.White, 4f, false);
+        Rectangle strip = new(panel.X + 8, panel.Y + 8, panel.Width - 16, 28);
+        b.Draw(Game1.staminaRect, strip, new Color(245, 224, 173));
+        Utility.drawTextWithShadow(b, title, Game1.smallFont, new Vector2(panel.X + 12, panel.Y + 12), new Color(45, 56, 84));
+    }
+
+    private void BuildButtons()
+    {
+        this.buttons.Clear();
+        void Add(string label, Func<(bool enabled, string disabledReason)> state, Action execute)
+        {
+            this.buttons.Add(new ActionButton { Label = label, State = state, Execute = execute });
+        }
+
+        Add("Accept Pending", this.GetPendingResolutionState, () => this.RunAction(this.ResolvePendingFromTarget(true, out string msg), msg, "[PR.Core]"));
+        Add("Reject Pending", this.GetPendingResolutionState, () => this.RunAction(this.ResolvePendingFromTarget(false, out string msg), msg, "[PR.Core]"));
+        Add("Propose Dating", this.GetDatingProposalState, () => this.RunAction(this.mod.DatingSystem.RequestDatingFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.Dating]"));
+        Add("Start Date (Town)", this.GetDateEventState, () => this.RunAction(this.mod.DateImmersionSystem.StartImmersiveDateFromLocal(this.targetPlayerId.ToString(), ImmersiveDateLocation.Town, out string msg), msg, "[PR.System.DateImmersion]"));
+        Add("Propose Marriage", this.GetMarriageProposalState, () => this.RunAction(this.mod.MarriageSystem.RequestMarriageFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.Marriage]"));
+        Add("Try For Baby", this.GetTryForBabyState, () => this.RunAction(this.mod.PregnancySystem.RequestTryForBabyFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.Pregnancy]"));
+        Add("Carry Player", this.GetCarryStartState, () => this.RunAction(this.mod.CarrySystem.RequestCarryFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.Carry]"));
+        Add("Stop Carry", this.GetCarryStopState, () => this.RunAction(this.mod.CarrySystem.StopCarryFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.Carry]"));
+        Add("Start Holding Hands", this.GetHoldingHandsStartState, () => this.RunAction(this.mod.HoldingHandsSystem.RequestHoldingHandsFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.HoldingHands]"));
+        Add("Stop Holding Hands", this.GetHoldingHandsStopState, () => this.RunAction(this.mod.HoldingHandsSystem.StopHoldingHandsFromLocal(this.targetPlayerId.ToString(), out string msg), msg, "[PR.System.HoldingHands]"));
+    }
+
+    private bool IsButtonVisible(Rectangle r)
+    {
+        return r.Bottom > this.actionsViewport.Y && r.Y < this.actionsViewport.Bottom;
     }
 
     private (bool enabled, string disabledReason) GetDatingProposalState()
@@ -243,12 +266,7 @@ public sealed class PlayerInteractionMenu : IClickableMenu
             return (false, $"Disabled: already {relation.State}.");
         }
 
-        if (relation.PendingDatingFrom.HasValue)
-        {
-            return (false, "Disabled: dating request already pending.");
-        }
-
-        return (true, string.Empty);
+        return relation.PendingDatingFrom.HasValue ? (false, "Disabled: dating request already pending.") : (true, string.Empty);
     }
 
     private (bool enabled, string disabledReason) GetDateEventState()
@@ -269,12 +287,7 @@ public sealed class PlayerInteractionMenu : IClickableMenu
             return (false, "Requires Dating/Engaged/Married status.");
         }
 
-        if (!relation.CanStartImmersiveDateToday(this.mod.GetCurrentDayNumber()))
-        {
-            return (false, "Immersive date already used today for this couple.");
-        }
-
-        return (true, string.Empty);
+        return relation.CanStartImmersiveDateToday(this.mod.GetCurrentDayNumber()) ? (true, string.Empty) : (false, "Immersive date already used today for this couple.");
     }
 
     private (bool enabled, string disabledReason) GetMarriageProposalState()
@@ -300,12 +313,7 @@ public sealed class PlayerInteractionMenu : IClickableMenu
             return (false, "Requires Dating status.");
         }
 
-        if (relation.PendingMarriageFrom.HasValue)
-        {
-            return (false, "Disabled: marriage request already pending.");
-        }
-
-        return (true, string.Empty);
+        return relation.PendingMarriageFrom.HasValue ? (false, "Disabled: marriage request already pending.") : (true, string.Empty);
     }
 
     private (bool enabled, string disabledReason) GetTryForBabyState()
@@ -315,46 +323,27 @@ public sealed class PlayerInteractionMenu : IClickableMenu
             return (false, "Disabled in config.");
         }
 
-        if (!this.mod.MarriageSystem.IsMarried(this.mod.LocalPlayerId, this.targetPlayerId))
-        {
-            return (false, "Requires Married status.");
-        }
-
-        return (true, string.Empty);
+        return this.mod.MarriageSystem.IsMarried(this.mod.LocalPlayerId, this.targetPlayerId) ? (true, string.Empty) : (false, "Requires Married status.");
     }
 
     private (bool enabled, string disabledReason) GetCarryStartState()
     {
-        return this.mod.CarrySystem.CanRequestCarry(this.mod.LocalPlayerId, this.targetPlayerId, out string reason)
-            ? (true, string.Empty)
-            : (false, $"Disabled: {reason}");
+        return this.mod.CarrySystem.CanRequestCarry(this.mod.LocalPlayerId, this.targetPlayerId, out string reason) ? (true, string.Empty) : (false, $"Disabled: {reason}");
     }
 
     private (bool enabled, string disabledReason) GetCarryStopState()
     {
-        if (!this.mod.CarrySystem.IsCarryActiveBetween(this.mod.LocalPlayerId, this.targetPlayerId))
-        {
-            return (false, "No active carry session with this player.");
-        }
-
-        return (true, string.Empty);
+        return this.mod.CarrySystem.IsCarryActiveBetween(this.mod.LocalPlayerId, this.targetPlayerId) ? (true, string.Empty) : (false, "No active carry session with this player.");
     }
 
     private (bool enabled, string disabledReason) GetHoldingHandsStartState()
     {
-        return this.mod.HoldingHandsSystem.CanRequestHands(this.mod.LocalPlayerId, this.targetPlayerId, out string reason)
-            ? (true, string.Empty)
-            : (false, $"Disabled: {reason}");
+        return this.mod.HoldingHandsSystem.CanRequestHands(this.mod.LocalPlayerId, this.targetPlayerId, out string reason) ? (true, string.Empty) : (false, $"Disabled: {reason}");
     }
 
     private (bool enabled, string disabledReason) GetHoldingHandsStopState()
     {
-        if (!this.mod.HoldingHandsSystem.IsHandsActiveBetween(this.mod.LocalPlayerId, this.targetPlayerId))
-        {
-            return (false, "No active holding hands session with this player.");
-        }
-
-        return (true, string.Empty);
+        return this.mod.HoldingHandsSystem.IsHandsActiveBetween(this.mod.LocalPlayerId, this.targetPlayerId) ? (true, string.Empty) : (false, "No active holding hands session with this player.");
     }
 
     private void RunAction(bool success, string message, string category)
@@ -371,39 +360,32 @@ public sealed class PlayerInteractionMenu : IClickableMenu
 
     private (bool enabled, string disabledReason) GetPendingResolutionState()
     {
-        return this.HasPendingFromTarget(out _)
-            ? (true, string.Empty)
-            : (false, "No pending request from this player.");
+        return this.HasPendingFromTarget(out _) ? (true, string.Empty) : (false, "No pending request from this player.");
     }
 
     private bool ResolvePendingFromTarget(bool accept, out string message)
     {
-        if (this.mod.DatingSystem.TryGetPendingDatingForPlayer(this.mod.LocalPlayerId, out _, out long datingRequester)
-            && datingRequester == this.targetPlayerId)
+        if (this.mod.DatingSystem.TryGetPendingDatingForPlayer(this.mod.LocalPlayerId, out _, out long datingRequester) && datingRequester == this.targetPlayerId)
         {
             return this.mod.DatingSystem.RespondToPendingDatingLocal(accept, out message);
         }
 
-        if (this.mod.MarriageSystem.TryGetPendingMarriageForPlayer(this.mod.LocalPlayerId, out long marriageRequester)
-            && marriageRequester == this.targetPlayerId)
+        if (this.mod.MarriageSystem.TryGetPendingMarriageForPlayer(this.mod.LocalPlayerId, out long marriageRequester) && marriageRequester == this.targetPlayerId)
         {
             return this.mod.MarriageSystem.RespondToPendingMarriageLocal(accept, out message);
         }
 
-        if (this.mod.PregnancySystem.TryGetPendingTryForBabyForPlayer(this.mod.LocalPlayerId, out long pregnancyRequester)
-            && pregnancyRequester == this.targetPlayerId)
+        if (this.mod.PregnancySystem.TryGetPendingTryForBabyForPlayer(this.mod.LocalPlayerId, out long pregnancyRequester) && pregnancyRequester == this.targetPlayerId)
         {
             return this.mod.PregnancySystem.RespondTryForBabyFromLocal(accept, out message);
         }
 
-        if (this.mod.CarrySystem.TryGetPendingCarryForPlayer(this.mod.LocalPlayerId, out long carryRequester)
-            && carryRequester == this.targetPlayerId)
+        if (this.mod.CarrySystem.TryGetPendingCarryForPlayer(this.mod.LocalPlayerId, out long carryRequester) && carryRequester == this.targetPlayerId)
         {
             return this.mod.CarrySystem.RespondToPendingCarryLocal(accept, out message);
         }
 
-        if (this.mod.HoldingHandsSystem.TryGetPendingForPlayer(this.mod.LocalPlayerId, out long handsRequester)
-            && handsRequester == this.targetPlayerId)
+        if (this.mod.HoldingHandsSystem.TryGetPendingForPlayer(this.mod.LocalPlayerId, out long handsRequester) && handsRequester == this.targetPlayerId)
         {
             return this.mod.HoldingHandsSystem.RespondToPendingHoldingHandsLocal(accept, out message);
         }
@@ -415,37 +397,49 @@ public sealed class PlayerInteractionMenu : IClickableMenu
     private bool HasPendingFromTarget(out long requesterId)
     {
         requesterId = -1;
-        if (this.mod.DatingSystem.TryGetPendingDatingForPlayer(this.mod.LocalPlayerId, out _, out requesterId)
-            && requesterId == this.targetPlayerId)
+        if (this.mod.DatingSystem.TryGetPendingDatingForPlayer(this.mod.LocalPlayerId, out _, out requesterId) && requesterId == this.targetPlayerId)
         {
             return true;
         }
 
-        if (this.mod.MarriageSystem.TryGetPendingMarriageForPlayer(this.mod.LocalPlayerId, out requesterId)
-            && requesterId == this.targetPlayerId)
+        if (this.mod.MarriageSystem.TryGetPendingMarriageForPlayer(this.mod.LocalPlayerId, out requesterId) && requesterId == this.targetPlayerId)
         {
             return true;
         }
 
-        if (this.mod.PregnancySystem.TryGetPendingTryForBabyForPlayer(this.mod.LocalPlayerId, out requesterId)
-            && requesterId == this.targetPlayerId)
+        if (this.mod.PregnancySystem.TryGetPendingTryForBabyForPlayer(this.mod.LocalPlayerId, out requesterId) && requesterId == this.targetPlayerId)
         {
             return true;
         }
 
-        if (this.mod.CarrySystem.TryGetPendingCarryForPlayer(this.mod.LocalPlayerId, out requesterId)
-            && requesterId == this.targetPlayerId)
+        if (this.mod.CarrySystem.TryGetPendingCarryForPlayer(this.mod.LocalPlayerId, out requesterId) && requesterId == this.targetPlayerId)
         {
             return true;
         }
 
-        if (this.mod.HoldingHandsSystem.TryGetPendingForPlayer(this.mod.LocalPlayerId, out requesterId)
-            && requesterId == this.targetPlayerId)
+        if (this.mod.HoldingHandsSystem.TryGetPendingForPlayer(this.mod.LocalPlayerId, out requesterId) && requesterId == this.targetPlayerId)
         {
             return true;
         }
 
         requesterId = -1;
         return false;
+    }
+
+    private string FitText(SpriteFont font, string text, int maxWidth)
+    {
+        if (font.MeasureString(text).X <= maxWidth)
+        {
+            return text;
+        }
+
+        const string ellipsis = "...";
+        string value = text;
+        while (value.Length > 0 && font.MeasureString(value + ellipsis).X > maxWidth)
+        {
+            value = value[..^1];
+        }
+
+        return value.Length == 0 ? ellipsis : value + ellipsis;
     }
 }

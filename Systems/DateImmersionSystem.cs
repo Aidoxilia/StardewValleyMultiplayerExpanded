@@ -18,8 +18,18 @@ public sealed class DateImmersionSystem
     private readonly List<string> localNpcNames = new();
     private readonly Dictionary<string, DateTime> lastAmbientBySession = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> lastDuoPulseBySession = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PendingImmersiveRequest> pendingRequests = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTime> joinGraceBySession = new(StringComparer.OrdinalIgnoreCase);
     private string localRuntimeSessionId = string.Empty;
     private DateImmersionPublicState? localPublicState;
+
+    private sealed class PendingImmersiveRequest
+    {
+        public long RequesterId { get; init; }
+        public long PartnerId { get; init; }
+        public ImmersiveDateLocation Location { get; init; }
+        public DateTime CreatedUtc { get; init; }
+    }
 
     private static readonly string[] TownAmbientLines =
     {
@@ -139,6 +149,8 @@ public sealed class DateImmersionSystem
         this.processedInteractionRequests.Clear();
         this.lastAmbientBySession.Clear();
         this.lastDuoPulseBySession.Clear();
+        this.pendingRequests.Clear();
+        this.joinGraceBySession.Clear();
         this.localPublicState = null;
         this.CleanupLocalRuntime();
     }
@@ -224,6 +236,18 @@ public sealed class DateImmersionSystem
         string locationName = GetMapName(state.Location);
         if (!IsSameLocation(playerA, playerB, locationName))
         {
+            if (this.joinGraceBySession.TryGetValue(state.SessionId, out DateTime graceEnd) && DateTime.UtcNow < graceEnd)
+            {
+                if (Game1.ticks % 30 == 0)
+                {
+                    Vector2 start = GetStartTile(state.Location);
+                    this.WarpParticipant(state.PlayerAId, locationName, start);
+                    this.WarpParticipant(state.PlayerBId, locationName, start + new Vector2(1f, 0f));
+                }
+
+                return;
+            }
+
             this.EndImmersiveDateHost("location_changed", completed: false);
             return;
         }
@@ -250,6 +274,8 @@ public sealed class DateImmersionSystem
 
     public void OnOneSecondUpdateTickedHost()
     {
+        this.CleanupExpiredPendingRequestsHost();
+
         if (!this.mod.IsHostPlayer || this.mod.HostSaveData.ActiveImmersiveDate is null)
         {
             return;
@@ -272,6 +298,8 @@ public sealed class DateImmersionSystem
 
     public void OnPeerDisconnectedHost(long playerId)
     {
+        this.RemovePendingRequestsForPlayer(playerId);
+
         if (!this.mod.IsHostPlayer || this.mod.HostSaveData.ActiveImmersiveDate is null)
         {
             return;
@@ -301,6 +329,7 @@ public sealed class DateImmersionSystem
         ImmersiveDateRequestMessage payload = new()
         {
             RequesterId = this.mod.LocalPlayerId,
+            RequesterName = this.mod.LocalPlayerName,
             PartnerId = partner.UniqueMultiplayerID,
             Location = location
         };
@@ -505,41 +534,181 @@ public sealed class DateImmersionSystem
             return;
         }
 
+        string pairKey = ConsentSystem.GetPairKey(request.RequesterId, request.PartnerId);
+        if (this.pendingRequests.ContainsKey(pairKey))
+        {
+            this.mod.NetSync.SendError(senderId, "pending_exists", "An immersive date request is already pending for this couple.");
+            return;
+        }
+
+        if (!this.ValidateCanStartImmersiveDateHost(request.RequesterId, request.PartnerId, request.Location, out string validationError))
+        {
+            this.mod.NetSync.SendError(senderId, "invalid_state", validationError);
+            return;
+        }
+
+        this.pendingRequests[pairKey] = new PendingImmersiveRequest
+        {
+            RequesterId = request.RequesterId,
+            PartnerId = request.PartnerId,
+            Location = request.Location,
+            CreatedUtc = DateTime.UtcNow
+        };
+
+        Farmer? requester = this.mod.FindFarmerById(request.RequesterId, includeOffline: true);
+        string requesterName = !string.IsNullOrWhiteSpace(request.RequesterName)
+            ? request.RequesterName
+            : requester?.Name ?? request.RequesterId.ToString();
+        ImmersiveDateRequestMessage prompt = new()
+        {
+            RequesterId = request.RequesterId,
+            RequesterName = requesterName,
+            PartnerId = request.PartnerId,
+            Location = request.Location
+        };
+
+        if (request.PartnerId == this.mod.LocalPlayerId)
+        {
+            this.mod.RequestPrompts.Enqueue(
+                $"idate:{request.RequesterId}:{request.PartnerId}:{request.Location}",
+                "Immersive Date",
+                $"{requesterName} asks to start a {request.Location} date.",
+                () =>
+                {
+                    this.HandleImmersiveDateDecisionHost(
+                        new ImmersiveDateDecisionMessage
+                        {
+                            RequesterId = request.RequesterId,
+                            ResponderId = request.PartnerId,
+                            Location = request.Location,
+                            Accepted = true
+                        },
+                        this.mod.LocalPlayerId);
+                    return (true, "Immersive date accepted.");
+                },
+                () =>
+                {
+                    this.HandleImmersiveDateDecisionHost(
+                        new ImmersiveDateDecisionMessage
+                        {
+                            RequesterId = request.RequesterId,
+                            ResponderId = request.PartnerId,
+                            Location = request.Location,
+                            Accepted = false
+                        },
+                        this.mod.LocalPlayerId);
+                    return (true, "Immersive date declined.");
+                },
+                "[PR.System.DateImmersion]");
+        }
+        else
+        {
+            this.mod.NetSync.SendToPlayer(MessageType.ImmersiveDateRequest, prompt, request.PartnerId);
+        }
+
+        this.mod.Monitor.Log(
+            $"[PR.System.DateImmersion] Request queued: {request.RequesterId} -> {request.PartnerId} ({request.Location}).",
+            LogLevel.Info);
+    }
+
+    public void HandleImmersiveDateDecisionHost(ImmersiveDateDecisionMessage decision, long senderId)
+    {
+        if (!this.mod.IsHostPlayer || !this.mod.Config.EnableImmersiveDates)
+        {
+            return;
+        }
+
+        if (senderId != decision.ResponderId)
+        {
+            this.mod.NetSync.SendError(senderId, "sender_mismatch", "Immersive date decision rejected (sender mismatch).");
+            return;
+        }
+
+        string pairKey = ConsentSystem.GetPairKey(decision.RequesterId, decision.ResponderId);
+        if (!this.pendingRequests.TryGetValue(pairKey, out PendingImmersiveRequest? pending))
+        {
+            this.mod.NetSync.SendError(senderId, "missing_request", "No pending immersive date request found.");
+            return;
+        }
+
+        this.pendingRequests.Remove(pairKey);
+        if (pending.Location != decision.Location)
+        {
+            this.mod.NetSync.SendError(senderId, "mismatch", "Immersive date decision mismatch.");
+            return;
+        }
+
+        this.mod.NetSync.Broadcast(
+            MessageType.ImmersiveDateDecision,
+            decision,
+            decision.RequesterId,
+            decision.ResponderId);
+
+        if (!decision.Accepted)
+        {
+            return;
+        }
+
+        if (!this.ValidateCanStartImmersiveDateHost(decision.RequesterId, decision.ResponderId, decision.Location, out string validationError))
+        {
+            this.mod.NetSync.SendError(decision.RequesterId, "start_failed", validationError);
+            this.mod.NetSync.SendError(decision.ResponderId, "start_failed", validationError);
+            return;
+        }
+
+        this.StartImmersiveDateSessionHost(decision.RequesterId, decision.ResponderId, decision.Location);
+    }
+
+    private bool ValidateCanStartImmersiveDateHost(long requesterId, long partnerId, ImmersiveDateLocation location, out string message)
+    {
         if (this.mod.HostSaveData.ActiveImmersiveDate?.IsActive == true)
         {
-            this.mod.NetSync.SendError(senderId, "already_active", "Another immersive date is already active.");
-            return;
+            message = "Another immersive date is already active.";
+            return false;
         }
 
-        Farmer? requester = this.mod.FindFarmerById(request.RequesterId, includeOffline: false);
-        Farmer? partner = this.mod.FindFarmerById(request.PartnerId, includeOffline: false);
+        Farmer? requester = this.mod.FindFarmerById(requesterId, includeOffline: false);
+        Farmer? partner = this.mod.FindFarmerById(partnerId, includeOffline: false);
         if (requester is null || partner is null)
         {
-            this.mod.NetSync.SendError(senderId, "player_offline", "Both players must be online.");
-            return;
+            message = "Both players must be online.";
+            return false;
         }
 
-        RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(request.RequesterId, request.PartnerId);
+        RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(requesterId, partnerId);
         if (relation is null || relation.State == RelationshipState.None)
         {
-            this.mod.NetSync.SendError(senderId, "not_in_relationship", "Immersive date requires Dating/Engaged/Married.");
-            return;
+            message = "Immersive date requires Dating/Engaged/Married.";
+            return false;
         }
 
         int day = this.mod.GetCurrentDayNumber();
         if (!relation.CanStartImmersiveDateToday(day))
         {
-            this.mod.NetSync.SendError(senderId, "cooldown", "This couple already started an immersive date today.");
-            return;
+            message = "This couple already started an immersive date today.";
+            return false;
         }
 
-        int requiredHearts = this.GetRequiredHeartsForLocation(request.Location);
-        if (!this.mod.HeartsSystem.IsAtLeastHearts(request.RequesterId, request.PartnerId, requiredHearts))
+        int requiredHearts = this.GetRequiredHeartsForLocation(location);
+        if (!this.mod.HeartsSystem.IsAtLeastHearts(requesterId, partnerId, requiredHearts))
         {
-            this.mod.NetSync.SendError(senderId, "hearts_low", $"Requires at least {requiredHearts} hearts for {request.Location} date.");
+            message = $"Requires at least {requiredHearts} hearts for {location} date.";
+            return false;
+        }
+
+        message = string.Empty;
+        return true;
+    }
+
+    private void StartImmersiveDateSessionHost(long requesterId, long partnerId, ImmersiveDateLocation location)
+    {
+        RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(requesterId, partnerId);
+        if (relation is null)
+        {
             return;
         }
 
+        int day = this.mod.GetCurrentDayNumber();
         DateImmersionSaveState state = new()
         {
             SessionId = $"pr_date_{Guid.NewGuid():N}",
@@ -548,21 +717,23 @@ public sealed class DateImmersionSystem
             PlayerBId = relation.PlayerBId,
             PlayerBName = relation.PlayerBName,
             PairKey = relation.PairKey,
-            Location = request.Location,
+            Location = location,
             StartedDay = day,
             StartedTime = Game1.timeOfDay,
             IsActive = true
         };
+
         this.mod.HostSaveData.ActiveImmersiveDate = state;
         relation.LastImmersiveDateDay = day;
         relation.ImmersiveDateCount++;
         this.processedInteractionRequests.Clear();
         this.lastAmbientBySession[state.SessionId] = DateTime.MinValue;
         this.lastDuoPulseBySession[state.SessionId] = DateTime.MinValue;
+        this.joinGraceBySession[state.SessionId] = DateTime.UtcNow.AddSeconds(10);
         this.mod.MarkDataDirty("Immersive date started.", flushNow: true);
 
-        string mapName = GetMapName(request.Location);
-        Vector2 start = GetStartTile(request.Location);
+        string mapName = GetMapName(location);
+        Vector2 start = GetStartTile(location);
         this.WarpParticipant(relation.PlayerAId, mapName, start);
         this.WarpParticipant(relation.PlayerBId, mapName, start + new Vector2(1f, 0f));
         this.TryPlayEmote(relation.PlayerAId, 20);
@@ -570,11 +741,55 @@ public sealed class DateImmersionSystem
 
         this.localPublicState = this.BuildPublicState(state);
         this.EnsureLocalRuntime();
-
         this.BroadcastImmersiveDateState(active: true, "started");
         this.mod.Notifier.NotifyInfo(
-            $"Immersive date started in {request.Location}: {relation.PlayerAName} + {relation.PlayerBName}.",
+            $"Immersive date started in {location}: {relation.PlayerAName} + {relation.PlayerBName}.",
             "[PR.System.DateImmersion]");
+    }
+
+    private void CleanupExpiredPendingRequestsHost()
+    {
+        if (!this.mod.IsHostPlayer || this.pendingRequests.Count == 0)
+        {
+            return;
+        }
+
+        DateTime now = DateTime.UtcNow;
+        List<string> expired = new();
+        foreach ((string key, PendingImmersiveRequest value) in this.pendingRequests)
+        {
+            if (now - value.CreatedUtc > TimeSpan.FromSeconds(40))
+            {
+                expired.Add(key);
+            }
+        }
+
+        foreach (string key in expired)
+        {
+            this.pendingRequests.Remove(key);
+        }
+    }
+
+    private void RemovePendingRequestsForPlayer(long playerId)
+    {
+        if (!this.mod.IsHostPlayer || this.pendingRequests.Count == 0)
+        {
+            return;
+        }
+
+        List<string> removeKeys = new();
+        foreach ((string key, PendingImmersiveRequest value) in this.pendingRequests)
+        {
+            if (value.RequesterId == playerId || value.PartnerId == playerId)
+            {
+                removeKeys.Add(key);
+            }
+        }
+
+        foreach (string key in removeKeys)
+        {
+            this.pendingRequests.Remove(key);
+        }
     }
 
     public void HandleInteractionRequestHost(ImmersiveDateInteractionRequestMessage request, long senderId)
@@ -889,6 +1104,7 @@ public sealed class DateImmersionSystem
         this.processedInteractionRequests.Clear();
         this.lastAmbientBySession.Remove(state.SessionId);
         this.lastDuoPulseBySession.Remove(state.SessionId);
+        this.joinGraceBySession.Remove(state.SessionId);
         this.mod.MarkDataDirty($"Immersive date ended ({reason}).", flushNow: true);
         this.CleanupLocalRuntime();
         this.BroadcastImmersiveDateState(active: false, reason);

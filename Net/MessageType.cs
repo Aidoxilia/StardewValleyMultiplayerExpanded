@@ -21,13 +21,14 @@ public enum MessageType
     CarryState = 16,
     CarryStop = 17,
     ImmersiveDateRequest = 18,
-    ImmersiveDateState = 19,
-    ImmersiveDateInteractionRequest = 20,
-    ImmersiveDateInteractionResult = 21,
-    HeartDelta = 22,
-    HoldingHandsRequest = 23,
-    HoldingHandsDecision = 24,
-    HoldingHandsState = 25,
-    HoldingHandsStop = 26,
-    Error = 27
+    ImmersiveDateDecision = 19,
+    ImmersiveDateState = 20,
+    ImmersiveDateInteractionRequest = 21,
+    ImmersiveDateInteractionResult = 22,
+    HeartDelta = 23,
+    HoldingHandsRequest = 24,
+    HoldingHandsDecision = 25,
+    HoldingHandsState = 26,
+    HoldingHandsStop = 27,
+    Error = 28
 }

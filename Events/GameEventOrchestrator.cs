@@ -152,7 +152,7 @@ public sealed class GameEventOrchestrator
             return;
         }
 
-        if (e.Button == SButton.MouseRight && Game1.activeClickableMenu is null)
+        if (e.Button == SButton.MouseLeft && Game1.activeClickableMenu is null)
         {
             Microsoft.Xna.Framework.Point absolutePoint = new(
                 (int)e.Cursor.AbsolutePixels.X,

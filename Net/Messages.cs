@@ -94,8 +94,17 @@ public sealed class CarryStopMessage
 public sealed class ImmersiveDateRequestMessage
 {
     public long RequesterId { get; set; }
+    public string RequesterName { get; set; } = string.Empty;
     public long PartnerId { get; set; }
     public ImmersiveDateLocation Location { get; set; }
+}
+
+public sealed class ImmersiveDateDecisionMessage
+{
+    public long RequesterId { get; set; }
+    public long ResponderId { get; set; }
+    public ImmersiveDateLocation Location { get; set; }
+    public bool Accepted { get; set; }
 }
 
 public sealed class ImmersiveDateStateMessage

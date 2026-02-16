@@ -125,6 +125,12 @@ public sealed class HostHandlers
                 this.mod.DateImmersionSystem.HandleImmersiveDateRequestHost(request, e.FromPlayerID);
                 break;
             }
+            case MessageType.ImmersiveDateDecision:
+            {
+                ImmersiveDateDecisionMessage decision = e.ReadAs<ImmersiveDateDecisionMessage>();
+                this.mod.DateImmersionSystem.HandleImmersiveDateDecisionHost(decision, e.FromPlayerID);
+                break;
+            }
             case MessageType.ImmersiveDateInteractionRequest:
             {
                 ImmersiveDateInteractionRequestMessage request = e.ReadAs<ImmersiveDateInteractionRequestMessage>();

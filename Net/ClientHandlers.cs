@@ -242,6 +242,47 @@ public sealed class ClientHandlers
                 this.mod.DateImmersionSystem.ApplyStateMessageClient(state);
                 break;
             }
+            case MessageType.ImmersiveDateRequest:
+            {
+                if (this.mod.IsHostPlayer)
+                {
+                    break;
+                }
+
+                ImmersiveDateRequestMessage request = e.ReadAs<ImmersiveDateRequestMessage>();
+                if (request.PartnerId == this.mod.LocalPlayerId)
+                {
+                    string requesterName = request.RequesterName;
+                    if (string.IsNullOrWhiteSpace(requesterName))
+                    {
+                        Farmer? from = this.mod.FindFarmerById(request.RequesterId, includeOffline: true);
+                        requesterName = from?.Name ?? request.RequesterId.ToString();
+                    }
+
+                    this.mod.RequestPrompts.Enqueue(
+                        $"idate:{request.RequesterId}:{request.PartnerId}:{request.Location}",
+                        "Immersive Date",
+                        $"{requesterName} asks to start a {request.Location} date.",
+                        () => this.ResolveImmersiveDateRequest(request, accept: true),
+                        () => this.ResolveImmersiveDateRequest(request, accept: false),
+                        "[PR.System.DateImmersion]");
+                }
+                break;
+            }
+            case MessageType.ImmersiveDateDecision:
+            {
+                ImmersiveDateDecisionMessage decision = e.ReadAs<ImmersiveDateDecisionMessage>();
+                if (decision.RequesterId == this.mod.LocalPlayerId)
+                {
+                    this.mod.Notifier.NotifyInfo(
+                        decision.Accepted
+                            ? $"Immersive date accepted ({decision.Location})."
+                            : $"Immersive date declined ({decision.Location}).",
+                        "[PR.System.DateImmersion]");
+                }
+
+                break;
+            }
             case MessageType.ImmersiveDateInteractionResult:
             {
                 ImmersiveDateInteractionResultMessage result = e.ReadAs<ImmersiveDateInteractionResultMessage>();
@@ -338,6 +379,28 @@ public sealed class ClientHandlers
 
         bool ok = this.mod.HoldingHandsSystem.RespondToPendingHoldingHandsLocal(accept, out string message);
         return (ok, message);
+    }
+
+    private (bool success, string message) ResolveImmersiveDateRequest(ImmersiveDateRequestMessage request, bool accept)
+    {
+        ImmersiveDateDecisionMessage payload = new()
+        {
+            RequesterId = request.RequesterId,
+            ResponderId = this.mod.LocalPlayerId,
+            Location = request.Location,
+            Accepted = accept
+        };
+
+        if (this.mod.IsHostPlayer)
+        {
+            this.mod.DateImmersionSystem.HandleImmersiveDateDecisionHost(payload, this.mod.LocalPlayerId);
+        }
+        else
+        {
+            this.mod.NetSync.SendToPlayer(MessageType.ImmersiveDateDecision, payload, Game1.MasterPlayer.UniqueMultiplayerID);
+        }
+
+        return (true, accept ? "Immersive date accepted." : "Immersive date declined.");
     }
 
     private RelationshipRecord? TryCreateClientRelationFromPairKey(string pairKey)
