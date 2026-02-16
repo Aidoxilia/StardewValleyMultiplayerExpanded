@@ -186,12 +186,6 @@ public sealed class PregnancySystem
         }
 
         PregnancyRecord record = this.GetOrCreateRecord(from, partner);
-        if (!record.ParentAOptIn || !record.ParentBOptIn)
-        {
-            this.mod.NetSync.SendError(senderId, "missing_optin", "Both partners must opt-in before trying for baby.");
-            return;
-        }
-
         if (record.IsPregnant)
         {
             this.mod.NetSync.SendError(senderId, "already_pregnant", "A pregnancy is already in progress.");
@@ -283,6 +277,92 @@ public sealed class PregnancySystem
         this.mod.NetSync.Broadcast(MessageType.TryForBabyDecision, decision, record.ParentAId, record.ParentBId);
     }
 
+    public bool ForcePregnancyHost(long playerAId, long playerBId, int days, out string message)
+    {
+        if (!this.mod.IsHostPlayer)
+        {
+            message = "Only host can force pregnancy.";
+            return false;
+        }
+
+        if (playerAId == playerBId)
+        {
+            message = "Cannot use the same player for both parents.";
+            return false;
+        }
+
+        Farmer? playerA = this.mod.FindFarmerById(playerAId, includeOffline: true);
+        Farmer? playerB = this.mod.FindFarmerById(playerBId, includeOffline: true);
+        if (playerA is null || playerB is null)
+        {
+            message = "Both players must exist in this save.";
+            return false;
+        }
+
+        PregnancyRecord record = this.GetOrCreateRecord(playerA, playerB);
+        record.ParentAOptIn = true;
+        record.ParentBOptIn = true;
+        record.PendingTryForBabyFrom = null;
+        record.IsPregnant = true;
+        record.DaysRemaining = Math.Max(1, days);
+        record.StartedOnDay = this.mod.GetCurrentDayNumber();
+        record.LastProcessedDay = this.mod.GetCurrentDayNumber();
+
+        this.mod.MarkDataDirty("Pregnancy force command applied.", flushNow: true);
+        this.mod.NetSync.BroadcastSnapshotToAll();
+        message = $"Forced pregnancy applied for {playerA.Name} + {playerB.Name} ({record.DaysRemaining} day(s) remaining).";
+        return true;
+    }
+
+    public bool ForceBirthHost(long playerAId, long playerBId, out string message)
+    {
+        if (!this.mod.IsHostPlayer)
+        {
+            message = "Only host can force birth.";
+            return false;
+        }
+
+        if (playerAId == playerBId)
+        {
+            message = "Cannot use the same player for both parents.";
+            return false;
+        }
+
+        Farmer? playerA = this.mod.FindFarmerById(playerAId, includeOffline: true);
+        Farmer? playerB = this.mod.FindFarmerById(playerBId, includeOffline: true);
+        if (playerA is null || playerB is null)
+        {
+            message = "Both players must exist in this save.";
+            return false;
+        }
+
+        PregnancyRecord record = this.GetOrCreateRecord(playerA, playerB);
+        record.ParentAOptIn = true;
+        record.ParentBOptIn = true;
+        record.PendingTryForBabyFrom = null;
+        record.IsPregnant = false;
+        record.DaysRemaining = 0;
+        record.StartedOnDay = 0;
+        record.LastProcessedDay = this.mod.GetCurrentDayNumber();
+
+        ChildRecord child = this.CreateChild(record);
+        this.mod.HostSaveData.Children[child.ChildId] = child;
+
+        this.mod.NetSync.Broadcast(
+            MessageType.ChildBorn,
+            new ChildSyncMessage
+            {
+                Child = child
+            },
+            record.ParentAId,
+            record.ParentBId);
+        this.mod.ChildGrowthSystem.RebuildChildrenForActiveState();
+        this.mod.MarkDataDirty("Birth force command applied.", flushNow: true);
+        this.mod.NetSync.BroadcastSnapshotToAll();
+        message = $"Forced birth complete: {child.ChildName} ({playerA.Name} + {playerB.Name}).";
+        return true;
+    }
+
     public void OnDayStartedHost()
     {
         if (!this.mod.IsHostPlayer || !this.mod.Config.EnablePregnancy)
@@ -321,6 +401,7 @@ public sealed class PregnancySystem
                 },
                 record.ParentAId,
                 record.ParentBId);
+            this.mod.ChildGrowthSystem.RebuildChildrenForActiveState();
 
             this.mod.Notifier.NotifyInfo($"A child was born: {child.ChildName}.", "[PR.System.Pregnancy]");
         }
@@ -354,10 +435,20 @@ public sealed class PregnancySystem
             ParentAName = record.ParentAName,
             ParentBId = record.ParentBId,
             ParentBName = record.ParentBName,
+            AgeYears = 0,
             AgeDays = 0,
             Stage = ChildLifeStage.Infant,
             BirthDayNumber = this.mod.GetCurrentDayNumber(),
             LastProcessedDay = this.mod.GetCurrentDayNumber(),
+            IsFedToday = false,
+            FeedingProgress = 0,
+            AssignedTask = ChildTaskType.Auto,
+            AutoMode = true,
+            LastWorkedDay = -1,
+            RoutineZone = "FarmHouse",
+            RuntimeNpcName = $"PR_Child_{childId[..8]}",
+            RuntimeNpcSpawned = false,
+            VisualProfile = new ChildVisualProfile(),
             IsWorkerEnabled = true,
             AdultNpcName = $"PR_AdultChild_{childId[..8]}",
             AdultNpcSpawned = false

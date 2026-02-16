@@ -137,6 +137,12 @@ public sealed class HostHandlers
                 this.mod.DateImmersionSystem.HandleInteractionRequestHost(request, e.FromPlayerID);
                 break;
             }
+            case MessageType.ChildCommand:
+            {
+                ChildCommandMessage command = e.ReadAs<ChildCommandMessage>();
+                this.mod.ChildGrowthSystem.HandleChildCommandHost(command, e.FromPlayerID);
+                break;
+            }
         }
     }
 

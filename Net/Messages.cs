@@ -31,6 +31,7 @@ public sealed class StartPairEventMessage
     public long PlayerAId { get; set; }
     public long PlayerBId { get; set; }
     public string EventId { get; set; } = string.Empty;
+    public string SessionId { get; set; } = string.Empty;
     public string LocationName { get; set; } = "Town";
     public int TileX { get; set; } = 24;
     public int TileY { get; set; } = 62;
@@ -172,6 +173,30 @@ public sealed class HoldingHandsStopMessage
 {
     public long FromPlayerId { get; set; }
     public long TargetPlayerId { get; set; }
+}
+
+public enum ChildCommandAction
+{
+    Feed = 0,
+    SetAgeYears = 1,
+    SetTask = 2
+}
+
+public sealed class ChildCommandMessage
+{
+    public long RequesterId { get; set; }
+    public ChildCommandAction Action { get; set; }
+    public string ChildIdOrName { get; set; } = string.Empty;
+    public string ItemId { get; set; } = string.Empty;
+    public int AgeYears { get; set; } = -1;
+    public string TaskToken { get; set; } = string.Empty;
+}
+
+public sealed class ChildCommandResultMessage
+{
+    public bool Success { get; set; }
+    public string ChildId { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
 }
 
 public sealed class ErrorMessage

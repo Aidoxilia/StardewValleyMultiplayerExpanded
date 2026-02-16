@@ -26,13 +26,21 @@ public sealed class CommandRegistrar
         this.mod.Helper.ConsoleCommands.Add("pr.marry.propose", "Send marriage proposal. Usage: pr.marry.propose <playerNameOrId>", this.OnProposeMarriage);
         this.mod.Helper.ConsoleCommands.Add("pr.marry.accept", "Accept pending marriage request.", this.OnMarriageAccept);
         this.mod.Helper.ConsoleCommands.Add("pr.marry.reject", "Reject pending marriage request.", this.OnMarriageReject);
+        this.mod.Helper.ConsoleCommands.Add("pr.marry.force", "Cheat: force married state with a player (host). Usage: pr.marry.force <player>", this.OnMarriageForce);
+        this.mod.Helper.ConsoleCommands.Add("force_marriage", "Cheat alias for pr.marry.force. Usage: force_marriage <player>", this.OnMarriageForce);
 
         this.mod.Helper.ConsoleCommands.Add("pr.pregnancy.optin", "Set baby opt-in. Usage: pr.pregnancy.optin <player> [on/off]", this.OnPregnancyOptIn);
         this.mod.Helper.ConsoleCommands.Add("pr.pregnancy.try", "Request try-for-baby. Usage: pr.pregnancy.try <player>", this.OnPregnancyTry);
         this.mod.Helper.ConsoleCommands.Add("pr.pregnancy.accept", "Accept pending try-for-baby request.", this.OnPregnancyAccept);
         this.mod.Helper.ConsoleCommands.Add("pr.pregnancy.reject", "Reject pending try-for-baby request.", this.OnPregnancyReject);
+        this.mod.Helper.ConsoleCommands.Add("pr.pregnancy.force", "Cheat: force pregnancy with a player (host). Usage: pr.pregnancy.force <player> [days]", this.OnPregnancyForce);
+        this.mod.Helper.ConsoleCommands.Add("pr.pregnancy.birth", "Cheat: force immediate birth with a player (host). Usage: pr.pregnancy.birth <player>", this.OnPregnancyBirth);
 
         this.mod.Helper.ConsoleCommands.Add("pr.worker.runonce", "Run adult child worker pass immediately (host).", this.OnRunWorker);
+        this.mod.Helper.ConsoleCommands.Add("pr.child.feed", "Feed a child (host-authoritative). Usage: pr.child.feed <childId> [itemId]", this.OnChildFeed);
+        this.mod.Helper.ConsoleCommands.Add("pr.child.status", "Show child status. Usage: pr.child.status [childId]", this.OnChildStatus);
+        this.mod.Helper.ConsoleCommands.Add("pr.child.age.set", "Debug set child age in years (host). Usage: pr.child.age.set <childId> <years>", this.OnChildAgeSet);
+        this.mod.Helper.ConsoleCommands.Add("pr.child.task", "Assign child task. Usage: pr.child.task <childId> <auto|water|feed|collect|harvest|ship|fish|stop>", this.OnChildTask);
         this.mod.Helper.ConsoleCommands.Add("pr.child.age", "Debug child aging (host). Usage: pr.child.age <childIdOrName> <days>", this.OnAgeChild);
         this.mod.Helper.ConsoleCommands.Add("pr.carry.request", "Request to carry another player. Usage: pr.carry.request <player>", this.OnCarryRequest);
         this.mod.Helper.ConsoleCommands.Add("pr.carry.accept", "Accept pending carry request.", this.OnCarryAccept);
@@ -46,6 +54,7 @@ public sealed class CommandRegistrar
 
         this.mod.Helper.ConsoleCommands.Add("pr.date.immersive.start", "Start immersive date. Usage: pr.date.immersive.start <player> <town|beach|forest>", this.OnImmersiveDateStart);
         this.mod.Helper.ConsoleCommands.Add("pr.date.immersive.end", "End active immersive date.", this.OnImmersiveDateEnd);
+        this.mod.Helper.ConsoleCommands.Add("pr.date.immersive.retry", "Retry immersive date start handshake when session is not yet confirmed.", this.OnImmersiveDateRetry);
         this.mod.Helper.ConsoleCommands.Add("pr.date.debug.spawnstands", "Debug spawn immersive stands locally. Usage: pr.date.debug.spawnstands <town|beach|forest>", this.OnDateDebugSpawnStands);
         this.mod.Helper.ConsoleCommands.Add("pr.date.debug.cleanup", "Debug cleanup immersive date runtime objects.", this.OnDateDebugCleanup);
 
@@ -53,6 +62,7 @@ public sealed class CommandRegistrar
         this.mod.Helper.ConsoleCommands.Add("pr.hands.accept", "Accept pending holding hands request.", this.OnHandsAccept);
         this.mod.Helper.ConsoleCommands.Add("pr.hands.reject", "Reject pending holding hands request.", this.OnHandsReject);
         this.mod.Helper.ConsoleCommands.Add("pr.hands.stop", "Stop active holding hands session. Usage: pr.hands.stop [player]", this.OnHandsStop);
+        this.mod.Helper.ConsoleCommands.Add("pr.hands.debug.status", "Debug holding hands runtime status.", this.OnHandsDebugStatus);
     }
 
     private void OnProposeDating(string command, string[] args)
@@ -228,6 +238,28 @@ public sealed class CommandRegistrar
         this.Finish(this.mod.MarriageSystem.RespondToPendingMarriageLocal(false, out string msg), msg);
     }
 
+    private void OnMarriageForce(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run pr.marry.force / force_marriage.", "[PR.System.Marriage]");
+            return;
+        }
+
+        if (!this.mod.TryResolvePlayerToken(args[0], out Farmer? target))
+        {
+            this.mod.Notifier.NotifyWarn($"Player '{args[0]}' not found.", "[PR.System.Marriage]");
+            return;
+        }
+
+        this.Finish(this.mod.MarriageSystem.ForceMarriageHost(this.mod.LocalPlayerId, target.UniqueMultiplayerID, out string msg), msg);
+    }
+
     private void OnPregnancyOptIn(string command, string[] args)
     {
         if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
@@ -275,6 +307,57 @@ public sealed class CommandRegistrar
         this.Finish(this.mod.PregnancySystem.RespondTryForBabyFromLocal(false, out string msg), msg);
     }
 
+    private void OnPregnancyForce(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run pr.pregnancy.force.", "[PR.System.Pregnancy]");
+            return;
+        }
+
+        if (!this.mod.TryResolvePlayerToken(args[0], out Farmer? partner))
+        {
+            this.mod.Notifier.NotifyWarn($"Player '{args[0]}' not found.", "[PR.System.Pregnancy]");
+            return;
+        }
+
+        int days = this.mod.Config.PregnancyDays;
+        if (args.Length >= 2 && !int.TryParse(args[1], out days))
+        {
+            this.mod.Notifier.NotifyWarn("Days must be an integer.", "[PR.System.Pregnancy]");
+            return;
+        }
+
+        this.Finish(this.mod.PregnancySystem.ForcePregnancyHost(this.mod.LocalPlayerId, partner.UniqueMultiplayerID, days, out string msg), msg);
+    }
+
+    private void OnPregnancyBirth(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run pr.pregnancy.birth.", "[PR.System.Pregnancy]");
+            return;
+        }
+
+        if (!this.mod.TryResolvePlayerToken(args[0], out Farmer? partner))
+        {
+            this.mod.Notifier.NotifyWarn($"Player '{args[0]}' not found.", "[PR.System.Pregnancy]");
+            return;
+        }
+
+        this.Finish(this.mod.PregnancySystem.ForceBirthHost(this.mod.LocalPlayerId, partner.UniqueMultiplayerID, out string msg), msg);
+    }
+
     private void OnRunWorker(string command, string[] args)
     {
         if (!this.RequireWorldReady())
@@ -284,6 +367,54 @@ public sealed class CommandRegistrar
 
         string report = this.mod.FarmWorkerSystem.RunWorkerPass(force: true);
         this.mod.FarmWorkerSystem.PublishReport(report);
+    }
+
+    private void OnChildFeed(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        {
+            return;
+        }
+
+        string? itemId = args.Length >= 2 ? args[1] : null;
+        this.Finish(this.mod.ChildGrowthSystem.FeedChildFromLocal(args[0], itemId, out string msg), msg);
+    }
+
+    private void OnChildStatus(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        string? child = args.Length >= 1 ? args[0] : null;
+        this.Finish(this.mod.ChildGrowthSystem.GetChildStatusFromLocal(child, out string msg), msg);
+    }
+
+    private void OnChildAgeSet(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 2))
+        {
+            return;
+        }
+
+        if (!int.TryParse(args[1], out int years))
+        {
+            this.mod.Notifier.NotifyWarn("Years must be an integer.", "[PR.System.ChildGrowth]");
+            return;
+        }
+
+        this.Finish(this.mod.ChildGrowthSystem.SetChildAgeYearsFromLocal(args[0], years, out string msg), msg);
+    }
+
+    private void OnChildTask(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 2))
+        {
+            return;
+        }
+
+        this.Finish(this.mod.ChildGrowthSystem.SetChildTaskFromLocal(args[0], args[1], out string msg), msg);
     }
 
     private void OnAgeChild(string command, string[] args)
@@ -460,6 +591,16 @@ public sealed class CommandRegistrar
         this.Finish(this.mod.DateImmersionSystem.EndImmersiveDateFromLocal(out string msg), msg);
     }
 
+    private void OnImmersiveDateRetry(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        this.Finish(this.mod.DateImmersionSystem.RetryStartFromLocal(out string msg), msg);
+    }
+
     private void OnDateDebugSpawnStands(string command, string[] args)
     {
         if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
@@ -525,6 +666,16 @@ public sealed class CommandRegistrar
 
         string? partner = args.Length > 0 ? args[0] : null;
         this.Finish(this.mod.HoldingHandsSystem.StopHoldingHandsFromLocal(partner, out string msg), msg);
+    }
+
+    private void OnHandsDebugStatus(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        this.Finish(this.mod.HoldingHandsSystem.GetDebugStatusFromLocal(out string msg), msg);
     }
 
     private bool RequireWorldReady()

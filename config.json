@@ -23,6 +23,10 @@
   "EnablePregnancy": true,
   "PregnancyDays": 7,
   "EnableChildGrowth": true,
+  "EnableChildFeedingSystem": true,
+  "ChildYearsPerFedDayMin": 2,
+  "ChildYearsPerFedDayMax": 3,
+  "AdultWorkMinAge": 16,
   "EnableFarmWorker": true,
   "AllowAdultChildWork": true,
   "EnableTaskWater": true,
@@ -30,6 +34,11 @@
   "EnableTaskCollect": true,
   "EnableTaskHarvest": true,
   "EnableTaskShip": true,
+  "EnableChildFishingTask": true,
+  "DateStartConfirmSeconds": 5,
+  "DateStartRetryMaxAttempts": 3,
+  "HandsMaxMovePixelsPerTick": 14,
+  "HandsEmergencyStopDistanceTiles": 8,
   "MarriageMinDatingDays": 3,
   "EnableDebugCommands": true
 }

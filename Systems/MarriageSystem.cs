@@ -248,6 +248,53 @@ public sealed class MarriageSystem
         return snapshotRelation?.State == RelationshipState.Married;
     }
 
+    public bool ForceMarriageHost(long playerAId, long playerBId, out string message)
+    {
+        if (!this.mod.IsHostPlayer)
+        {
+            message = "Only host can force marriage.";
+            return false;
+        }
+
+        if (playerAId == playerBId)
+        {
+            message = "Cannot force marriage with yourself.";
+            return false;
+        }
+
+        Farmer? playerA = this.mod.FindFarmerById(playerAId, includeOffline: true);
+        Farmer? playerB = this.mod.FindFarmerById(playerBId, includeOffline: true);
+        string nameA = playerA?.Name ?? playerAId.ToString();
+        string nameB = playerB?.Name ?? playerBId.ToString();
+
+        RelationshipRecord relation = ConsentSystem.GetOrCreateRelationship(
+            this.mod.HostSaveData,
+            playerAId,
+            playerBId,
+            nameA,
+            nameB);
+
+        relation.PendingDatingFrom = null;
+        relation.PendingMarriageFrom = null;
+        if (relation.RelationshipStartedDay <= 0)
+        {
+            relation.RelationshipStartedDay = this.mod.GetCurrentDayNumber();
+        }
+
+        relation.State = RelationshipState.Married;
+        relation.LastStatusChangeDay = this.mod.GetCurrentDayNumber();
+
+        this.mod.MarkDataDirty("Marriage force command applied.", flushNow: true);
+        this.mod.NetSync.BroadcastSnapshotToAll();
+
+        this.mod.Monitor.Log(
+            $"[PR.Data] Relationship force-updated: {relation.PairKey} -> Married (debug command).",
+            StardewModdingAPI.LogLevel.Info);
+
+        message = $"Forced marriage applied: {nameA} + {nameB}.";
+        return true;
+    }
+
     public bool TryGetPendingMarriageForPlayer(long targetPlayerId, out long requesterId)
     {
         return this.TryGetPendingMarriageForPlayer(targetPlayerId, out _, out requesterId);

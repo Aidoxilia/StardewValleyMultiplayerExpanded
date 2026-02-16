@@ -2,7 +2,7 @@ namespace PlayerRomance.Data;
 
 public sealed class RomanceSaveData
 {
-    public int Version { get; set; } = 2;
+    public int Version { get; set; } = 3;
     public int LastProcessedDay { get; set; }
     public Dictionary<string, RelationshipRecord> Relationships { get; set; } = new();
     public Dictionary<string, PregnancyRecord> Pregnancies { get; set; } = new();

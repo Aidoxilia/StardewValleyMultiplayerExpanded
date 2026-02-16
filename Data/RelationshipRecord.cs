@@ -25,6 +25,8 @@ public sealed class RelationshipRecord
     public int LastStatusChangeDay { get; set; }
     public int HeartPoints { get; set; }
     public int LastHeartChangeDay { get; set; }
+    public int LastImmersiveDateRequestedDay { get; set; } = -1;
+    public int LastImmersiveDateConfirmedDay { get; set; } = -1;
     public int LastImmersiveDateDay { get; set; } = -1;
     public int ImmersiveDateCount { get; set; }
     public int GiftsOfferedCount { get; set; }
@@ -55,6 +57,9 @@ public sealed class RelationshipRecord
 
     public bool CanStartImmersiveDateToday(int dayNumber)
     {
-        return this.LastImmersiveDateDay != dayNumber;
+        int effectiveLastConfirmedDay = this.LastImmersiveDateConfirmedDay >= 0
+            ? this.LastImmersiveDateConfirmedDay
+            : this.LastImmersiveDateDay;
+        return effectiveLastConfirmedDay != dayNumber;
     }
 }

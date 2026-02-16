@@ -18,6 +18,15 @@ Multiplayer player-to-player romance systems with host-authoritative state and s
 - Completed date reward is `+0.5 heart` (half a heart) per completed date.
 - Holding hands consensual sessions (request/accept/reject/stop) with robust MP sync.
 
+## Family & Stability v3
+- Child presence is persistent in-world (farm/house/town routine), rebuilt on save load.
+- Child visual profile is deterministic from both parents + child ID, with safe fallback.
+- Feeding-driven growth: no passive growth when feeding system is enabled.
+- Daily growth when fed is host-only deterministic (`+2` or `+3` years by config).
+- Adult threshold tasks (`16+`): water, feed, collect, harvest, ship, fish.
+- Holding hands hardening: movement clamp per tick + emergency distance stop + safe-position checks.
+- Immersive date startup handshake: requested vs confirmed state, retry, and no cooldown/penalty on failed start.
+
 ## Installation
 1. Build `PlayerRomance.csproj`.
 2. Place this folder under `Stardew Valley/Mods/MultiplayerExpanded` (or your chosen mod folder name).
@@ -71,6 +80,16 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
 - `HoldingHandsBreakDistanceTiles`: break distance for holding hands session.
 - `HoldingHandsOffsetPixels`: follower side offset while holding hands.
 
+### Family & Stability v3
+- `EnableChildFeedingSystem`: enables feeding-based growth.
+- `ChildYearsPerFedDayMin`, `ChildYearsPerFedDayMax`: deterministic growth range per fed day.
+- `AdultWorkMinAge`: minimum age to run worker tasks.
+- `EnableChildFishingTask`: allows fish task in child worker task set.
+- `DateStartConfirmSeconds`: stable window before immersive date is confirmed.
+- `DateStartRetryMaxAttempts`: max auto/manual retry attempts for immersive date start.
+- `HandsMaxMovePixelsPerTick`: per-tick move clamp for holding hands follower.
+- `HandsEmergencyStopDistanceTiles`: emergency stop threshold to avoid off-map/invisible desync.
+
 ### Existing systems
 - `EnableCarry`, `CarryEnergyRegenPerSecond`, `CarryOffsetY`
 - `EnableDateEvents`, `EnableMarriage`, `MarriageMinDatingDays`
@@ -86,9 +105,12 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
 - `pr.date.start <player>` (starts Town immersive date)
 - `pr.marry.propose <player>`
 - `pr.marry.accept` / `pr.marry.reject`
-- `pr.pregnancy.optin <player> [on/off]`
+- `pr.marry.force <player>` / `force_marriage <player>` (host cheat)
+- `pr.pregnancy.optin <player> [on/off]` (legacy/optional)
 - `pr.pregnancy.try <player>`
 - `pr.pregnancy.accept` / `pr.pregnancy.reject`
+- `pr.pregnancy.force <player> [days]` (host cheat)
+- `pr.pregnancy.birth <player>` (host cheat immediate baby)
 - `pr.carry.request <player>`
 - `pr.carry.accept` / `pr.carry.reject`
 - `pr.carry.stop [player]`
@@ -103,10 +125,18 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
 - `pr.date.immersive.end`
 - `pr.date.debug.spawnstands <town|beach|forest>` (host debug)
 - `pr.date.debug.cleanup`
+- `pr.date.immersive.retry`
 - `pr.hands.request <player>`
 - `pr.hands.accept`
 - `pr.hands.reject`
 - `pr.hands.stop [player]`
+- `pr.hands.debug.status`
+
+### Child v3 debug/control
+- `pr.child.feed <childIdOrName> [itemId]`
+- `pr.child.status [childIdOrName]`
+- `pr.child.age.set <childIdOrName> <years>`
+- `pr.child.task <childIdOrName> <auto|water|feed|collect|harvest|ship|fish|stop>`
 
 ## Multiplayer data/sync model
 - Host only reads/writes save data (`ReadSaveData` / `WriteSaveData`).
@@ -157,7 +187,20 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
    - manual `pr.hands.stop`.
 4. Verify clean stop notification and no lingering session.
 
-### 5) Non-regression
+### 5) Child lifecycle + work
+1. Force/trigger birth and verify child runtime NPC appears.
+2. Reload save and verify child is reconstructed.
+3. Feed child daily with `pr.child.feed`.
+4. Verify age grows only when fed (`+2/+3` years by config).
+5. At `16+`, assign work using `pr.child.task`.
+6. Run `pr.worker.runonce` and verify parent-targeted reports and no obvious duplication.
+
+### 6) Immersive start fallback/retry
+1. Start immersive date and force an initial mismatch (e.g. map movement during startup).
+2. Use `pr.date.immersive.retry`.
+3. Verify failed startup does not consume daily date cooldown and does not apply early-leave penalty.
+
+### 7) Non-regression
 - Re-test dating, marriage, pregnancy, carry, child growth, worker runonce.
 - Confirm old flows still function outside new v2 actions.
 
@@ -184,6 +227,7 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
 - Temporary immersive NPCs are runtime placeholders from vanilla assets.
 - Clothing stand uses vanilla wearable IDs; availability depends on local game item registry.
 - Deep vanilla spouse internals are intentionally not patched for compatibility/stability.
+- Child visual "mix" currently uses deterministic profile + vanilla template NPC assets (no custom sprite compositor yet).
 
 ## TODO
 - Replace placeholder immersive NPC visuals with custom assets.

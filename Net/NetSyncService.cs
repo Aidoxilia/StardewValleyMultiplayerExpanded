@@ -149,6 +149,10 @@ public sealed class NetSyncService
             {
                 snapshot.Children.Add(Clone(entry));
             }
+            foreach (ChildPublicState entry in this.mod.ChildGrowthSystem.BuildPublicStatesSnapshot())
+            {
+                snapshot.ChildRuntimeStates.Add(entry);
+            }
 
             foreach (CarrySessionState entry in this.mod.CarrySystem.GetActiveSessionsSnapshot())
             {
@@ -199,6 +203,8 @@ public sealed class NetSyncService
             LastStatusChangeDay = source.LastStatusChangeDay,
             HeartPoints = source.HeartPoints,
             LastHeartChangeDay = source.LastHeartChangeDay,
+            LastImmersiveDateRequestedDay = source.LastImmersiveDateRequestedDay,
+            LastImmersiveDateConfirmedDay = source.LastImmersiveDateConfirmedDay,
             LastImmersiveDateDay = source.LastImmersiveDateDay,
             ImmersiveDateCount = source.ImmersiveDateCount,
             GiftsOfferedCount = source.GiftsOfferedCount,
@@ -235,10 +241,20 @@ public sealed class NetSyncService
             ParentAName = source.ParentAName,
             ParentBId = source.ParentBId,
             ParentBName = source.ParentBName,
+            AgeYears = source.AgeYears,
             AgeDays = source.AgeDays,
             Stage = source.Stage,
             BirthDayNumber = source.BirthDayNumber,
             LastProcessedDay = source.LastProcessedDay,
+            IsFedToday = source.IsFedToday,
+            FeedingProgress = source.FeedingProgress,
+            AssignedTask = source.AssignedTask,
+            AutoMode = source.AutoMode,
+            LastWorkedDay = source.LastWorkedDay,
+            RoutineZone = source.RoutineZone,
+            RuntimeNpcName = source.RuntimeNpcName,
+            RuntimeNpcSpawned = source.RuntimeNpcSpawned,
+            VisualProfile = Clone(source.VisualProfile),
             IsWorkerEnabled = source.IsWorkerEnabled,
             AdultNpcName = source.AdultNpcName,
             AdultNpcSpawned = source.AdultNpcSpawned
@@ -262,6 +278,27 @@ public sealed class NetSyncService
             LeaderId = source.LeaderId,
             FollowerId = source.FollowerId,
             Active = source.Active
+        };
+    }
+
+    private static ChildVisualProfile Clone(ChildVisualProfile? source)
+    {
+        if (source is null)
+        {
+            return new ChildVisualProfile();
+        }
+
+        return new ChildVisualProfile
+        {
+            MixSeed = source.MixSeed,
+            SkinToneHex = source.SkinToneHex,
+            HairColorHex = source.HairColorHex,
+            OutfitColorHex = source.OutfitColorHex,
+            InfantTemplateNpc = source.InfantTemplateNpc,
+            ChildTemplateNpc = source.ChildTemplateNpc,
+            TeenTemplateNpc = source.TeenTemplateNpc,
+            AdultTemplateNpc = source.AdultTemplateNpc,
+            IsFallback = source.IsFallback
         };
     }
 }

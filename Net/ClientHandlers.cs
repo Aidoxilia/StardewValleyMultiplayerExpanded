@@ -318,6 +318,20 @@ public sealed class ClientHandlers
                 this.mod.Notifier.NotifyWarn(error.Message, "[PR.Net]");
                 break;
             }
+            case MessageType.ChildCommandResult:
+            {
+                ChildCommandResultMessage result = e.ReadAs<ChildCommandResultMessage>();
+                if (result.Success)
+                {
+                    this.mod.Notifier.NotifyInfo(result.Message, "[PR.System.ChildGrowth]");
+                }
+                else
+                {
+                    this.mod.Notifier.NotifyWarn(result.Message, "[PR.System.ChildGrowth]");
+                }
+
+                break;
+            }
         }
     }
 

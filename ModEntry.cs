@@ -99,6 +99,7 @@ public sealed class ModEntry : Mod
         this.CarrySystem.Reset();
         this.HoldingHandsSystem.Reset();
         this.DateImmersionSystem.Reset();
+        this.ChildGrowthSystem.Reset();
         this.RequestPrompts.Clear();
         this.LastHeartEventsByPair.Clear();
 
@@ -162,6 +163,7 @@ public sealed class ModEntry : Mod
         this.CarrySystem.Reset();
         this.HoldingHandsSystem.Reset();
         this.DateImmersionSystem.Reset();
+        this.ChildGrowthSystem.Reset();
         this.RequestPrompts.Clear();
         this.LastHeartEventsByPair.Clear();
         this.Monitor.Log("[PR.Core] Runtime state cleared on ReturnedToTitle.", LogLevel.Trace);

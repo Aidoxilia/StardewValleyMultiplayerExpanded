@@ -30,5 +30,7 @@ public enum MessageType
     HoldingHandsDecision = 25,
     HoldingHandsState = 26,
     HoldingHandsStop = 27,
-    Error = 28
+    Error = 28,
+    ChildCommand = 29,
+    ChildCommandResult = 30
 }

@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using PlayerRomance.Data;
 using PlayerRomance.Net;
 using StardewValley;
+using xTile.Dimensions;
 
 namespace PlayerRomance.Systems;
 
@@ -251,19 +252,29 @@ public sealed class HoldingHandsSystem
             Farmer? follower = this.mod.FindFarmerById(session.FollowerId, includeOffline: false);
             if (leader is null || follower is null)
             {
+                this.LogStopDebug(session, "player_offline", -1f, leader, follower);
                 this.StopHandsHost(session, "player offline");
                 continue;
             }
 
             if (leader.currentLocation != follower.currentLocation)
             {
+                float mismatchDistance = Vector2.Distance(leader.Tile, follower.Tile);
+                this.LogStopDebug(session, "location_mismatch", mismatchDistance, leader, follower);
                 this.StopHandsHost(session, "location mismatch");
                 continue;
             }
 
             float distanceTiles = Vector2.Distance(leader.Tile, follower.Tile);
+            if (distanceTiles > Math.Max(this.mod.Config.HoldingHandsBreakDistanceTiles, this.mod.Config.HandsEmergencyStopDistanceTiles))
+            {
+                this.LogStopDebug(session, "emergency_distance", distanceTiles, leader, follower);
+                this.StopHandsHost(session, "emergency distance");
+                continue;
+            }
             if (distanceTiles > this.mod.Config.HoldingHandsBreakDistanceTiles)
             {
+                this.LogStopDebug(session, "distance_break", distanceTiles, leader, follower);
                 this.StopHandsHost(session, "distance break");
                 continue;
             }
@@ -280,7 +291,23 @@ public sealed class HoldingHandsSystem
             Vector2 sideOffset = this.GetFollowerOffsetPixels(leader.FacingDirection);
             float sway = (float)Math.Sin(Game1.ticks / 10f) * 1.6f;
             Vector2 target = leader.Position + sideOffset + new Vector2(0f, sway);
-            follower.Position = Vector2.Lerp(follower.Position, target, 0.65f);
+            Vector2 delta = target - follower.Position;
+            float maxMove = Math.Max(1f, this.mod.Config.HandsMaxMovePixelsPerTick);
+            float deltaLen = delta.Length();
+            if (deltaLen > maxMove)
+            {
+                delta *= maxMove / deltaLen;
+            }
+
+            Vector2 candidate = follower.Position + delta;
+            if (!this.IsSafeFollowerPosition(leader.currentLocation, candidate))
+            {
+                this.LogStopDebug(session, "invalid_position", distanceTiles, leader, follower);
+                this.StopHandsHost(session, "invalid position");
+                continue;
+            }
+
+            follower.Position = candidate;
             follower.FacingDirection = leader.FacingDirection;
         }
     }
@@ -378,6 +405,32 @@ public sealed class HoldingHandsSystem
     public bool IsPlayerInHandsSession(long playerId)
     {
         return this.GetSessionsForRead().Any(p => p.Active && (p.LeaderId == playerId || p.FollowerId == playerId));
+    }
+
+    public bool GetDebugStatusFromLocal(out string message)
+    {
+        IReadOnlyCollection<HoldingHandsSessionState> sessions = this.GetSessionsForRead();
+        if (sessions.Count == 0)
+        {
+            message = "No active holding hands sessions.";
+            return false;
+        }
+
+        List<string> parts = new();
+        foreach (HoldingHandsSessionState session in sessions)
+        {
+            Farmer? leader = this.mod.FindFarmerById(session.LeaderId, includeOffline: true);
+            Farmer? follower = this.mod.FindFarmerById(session.FollowerId, includeOffline: true);
+            string leaderLoc = leader?.currentLocation?.NameOrUniqueName ?? "null";
+            string followerLoc = follower?.currentLocation?.NameOrUniqueName ?? "null";
+            float distanceTiles = leader is not null && follower is not null
+                ? Vector2.Distance(leader.Tile, follower.Tile)
+                : -1f;
+            parts.Add($"session {session.LeaderId}->{session.FollowerId} active={session.Active} dist={distanceTiles:0.00} loc=({leaderLoc}|{followerLoc})");
+        }
+
+        message = string.Join(" || ", parts);
+        return true;
     }
 
     public IReadOnlyList<HoldingHandsSessionState> GetActiveSessionsSnapshot()
@@ -504,6 +557,9 @@ public sealed class HoldingHandsSystem
         {
             return;
         }
+        this.mod.Monitor.Log(
+            $"[PR.System.HoldingHands] Stop session {session.LeaderId}->{session.FollowerId}, reason={reason}.",
+            StardewModdingAPI.LogLevel.Info);
 
         this.lastPositions.Remove(key);
         this.mod.MarkDataDirty($"Holding hands stopped ({reason}).", flushNow: true);
@@ -566,6 +622,45 @@ public sealed class HoldingHandsSystem
         };
     }
 
+    private bool IsSafeFollowerPosition(GameLocation location, Vector2 candidatePixels)
+    {
+        if (float.IsNaN(candidatePixels.X)
+            || float.IsNaN(candidatePixels.Y)
+            || float.IsInfinity(candidatePixels.X)
+            || float.IsInfinity(candidatePixels.Y))
+        {
+            return false;
+        }
+
+        Vector2 tile = candidatePixels / 64f;
+        int width = location.Map?.Layers[0]?.LayerWidth ?? 0;
+        int height = location.Map?.Layers[0]?.LayerHeight ?? 0;
+        if (width <= 0 || height <= 0)
+        {
+            return false;
+        }
+
+        if (tile.X < 1f
+            || tile.Y < 1f
+            || tile.X >= width - 1f
+            || tile.Y >= height - 1f)
+        {
+            return false;
+        }
+
+        Location tileLoc = new((int)Math.Floor(tile.X), (int)Math.Floor(tile.Y));
+        return location.isTileLocationOpen(tileLoc);
+    }
+
+    private void LogStopDebug(HoldingHandsSessionState session, string reason, float distanceTiles, Farmer? leader, Farmer? follower)
+    {
+        string leaderLoc = leader?.currentLocation?.NameOrUniqueName ?? "null";
+        string followerLoc = follower?.currentLocation?.NameOrUniqueName ?? "null";
+        this.mod.Monitor.Log(
+            $"[PR.System.HoldingHands] stop reason={reason}, session={session.LeaderId}->{session.FollowerId}, distance={distanceTiles:0.00}, leaderLoc={leaderLoc}, followerLoc={followerLoc}.",
+            StardewModdingAPI.LogLevel.Trace);
+    }
+
     private bool TryGetSessionForPlayer(long playerId, out HoldingHandsSessionState? session)
     {
         session = this.GetSessionsForRead().FirstOrDefault(p => p.Active && (p.LeaderId == playerId || p.FollowerId == playerId));
@@ -587,7 +682,9 @@ public sealed class HoldingHandsSystem
 
     private string GetSessionKey(long leaderId, long followerId)
     {
-        return $"{leaderId}->{followerId}";
+        long a = Math.Min(leaderId, followerId);
+        long b = Math.Max(leaderId, followerId);
+        return $"{a}_{b}";
     }
 
     private void TryPlayEmote(long playerId, int emoteId)

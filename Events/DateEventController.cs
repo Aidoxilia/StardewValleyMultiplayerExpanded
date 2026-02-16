@@ -89,6 +89,14 @@ public sealed class DateEventController
         {
             return;
         }
+        if (string.Equals(start.EventId, "immersive_warp", StringComparison.OrdinalIgnoreCase)
+            && !this.mod.DateImmersionSystem.ShouldApplyImmersiveWarpClient(start, out string skipReason))
+        {
+            this.mod.Monitor.Log(
+                $"[PR.System.DateImmersion] Ignored immersive warp event ({skipReason}).",
+                LogLevel.Trace);
+            return;
+        }
 
         if (!string.IsNullOrWhiteSpace(start.LocationName))
         {

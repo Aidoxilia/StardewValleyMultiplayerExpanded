@@ -26,6 +26,10 @@ public sealed class ModConfig
     public bool EnablePregnancy { get; set; } = true;
     public int PregnancyDays { get; set; } = 7;
     public bool EnableChildGrowth { get; set; } = true;
+    public bool EnableChildFeedingSystem { get; set; } = true;
+    public int ChildYearsPerFedDayMin { get; set; } = 2;
+    public int ChildYearsPerFedDayMax { get; set; } = 3;
+    public int AdultWorkMinAge { get; set; } = 16;
     public bool EnableFarmWorker { get; set; } = true;
     public bool AllowAdultChildWork { get; set; } = true;
     public bool EnableTaskWater { get; set; } = true;
@@ -33,6 +37,11 @@ public sealed class ModConfig
     public bool EnableTaskCollect { get; set; } = true;
     public bool EnableTaskHarvest { get; set; } = true;
     public bool EnableTaskShip { get; set; } = true;
+    public bool EnableChildFishingTask { get; set; } = true;
+    public int DateStartConfirmSeconds { get; set; } = 5;
+    public int DateStartRetryMaxAttempts { get; set; } = 3;
+    public int HandsMaxMovePixelsPerTick { get; set; } = 14;
+    public int HandsEmergencyStopDistanceTiles { get; set; } = 8;
     public int MarriageMinDatingDays { get; set; } = 3;
     public bool EnableDebugCommands { get; set; } = true;
 }

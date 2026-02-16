@@ -20,7 +20,8 @@ public enum DateInteractionType
     OpenStand = 1,
     BuyForSelf = 2,
     BuyAndOffer = 3,
-    EndDate = 4
+    EndDate = 4,
+    RetryStart = 5
 }
 
 public sealed class DateImmersionSaveState
@@ -35,6 +36,8 @@ public sealed class DateImmersionSaveState
     public int StartedDay { get; set; }
     public int StartedTime { get; set; }
     public bool IsActive { get; set; }
+    public bool IsConfirmed { get; set; }
+    public int RetryAttempts { get; set; }
     public int PlayerABonusTalks { get; set; }
     public int PlayerBBonusTalks { get; set; }
 }
@@ -50,6 +53,8 @@ public sealed class DateImmersionPublicState
     public int StartedDay { get; set; }
     public int StartedTime { get; set; }
     public bool IsActive { get; set; }
+    public bool IsConfirmed { get; set; }
+    public int RetryAttempts { get; set; }
 }
 
 public sealed class StandOfferDefinition

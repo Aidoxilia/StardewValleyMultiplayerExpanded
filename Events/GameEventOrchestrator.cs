@@ -29,6 +29,7 @@ public sealed class GameEventOrchestrator
         events.Multiplayer.PeerDisconnected += this.OnPeerDisconnected;
         events.Input.ButtonPressed += this.OnButtonPressed;
         events.Display.RenderedActiveMenu += this.OnRenderedActiveMenu;
+        events.Content.AssetRequested += this.OnAssetRequested;
     }
 
     private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
@@ -88,6 +89,7 @@ public sealed class GameEventOrchestrator
         this.mod.DateImmersionSystem.OnUpdateTickedHost();
         this.mod.HoldingHandsSystem.OnUpdateTickedHost();
         this.mod.CarrySystem.OnUpdateTickedHost();
+        this.mod.ChildGrowthSystem.OnUpdateTickedHost();
     }
 
     private void OnOneSecondUpdateTicked(object? sender, OneSecondUpdateTickedEventArgs e)
@@ -183,5 +185,10 @@ public sealed class GameEventOrchestrator
     private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
     {
         this.mod.SocialOverlay.Draw(e.SpriteBatch);
+    }
+
+    private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
+    {
+        this.mod.ChildGrowthSystem.OnAssetRequested(e);
     }
 }
