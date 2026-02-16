@@ -1,0 +1,10 @@
+{
+  "Name": "Player Romance",
+  "Author": "aidox + Codex",
+  "Version": "1.0.0",
+  "Description": "Multiplayer player-to-player romance systems with immersive dates, hearts, holding hands, carry, pregnancy, child growth, and farm worker AI for Stardew Valley 1.6+.",
+  "UniqueID": "aidox.PlayerRomance",
+  "EntryDll": "PlayerRomance.dll",
+  "MinimumApiVersion": "4.0.0",
+  "UpdateKeys": []
+}
