@@ -14,7 +14,7 @@
   <property name="Winter_Objects" value="392 .8"/>
  </properties>
  <tileset firstgid="1" name="Paths" tilewidth="16" tileheight="16" tilecount="64" columns="4">
-  <image source="Maps_paths" width="64" height="256"/>
+   <image source="Maps/paths" width="64" height="256"/>
   <tile id="0">
    <properties>
     <property name="PathType" value="NE"/>
@@ -47,7 +47,7 @@
   </tile>
  </tileset>
  <tileset firstgid="65" name="untitled tile sheet" tilewidth="16" tileheight="16" tilecount="527" columns="17">
-  <image source="Maps_spring_beach" width="272" height="496"/>
+   <image source="Maps/spring_beach" width="272" height="496"/>
   <tile id="7">
    <properties>
     <property name="Water" value="T"/>
@@ -1066,10 +1066,10 @@
   </tile>
  </tileset>
  <tileset firstgid="592" name="v16_Shadows" tilewidth="16" tileheight="16" tilecount="475" columns="19">
-  <image source="Maps_spring_Shadows" width="304" height="400"/>
+   <image source="Maps/spring_Shadows" width="304" height="400"/>
  </tileset>
  <tileset firstgid="1067" name="Town" tilewidth="16" tileheight="16" tilecount="2304" columns="32">
-  <image source="Maps_spring_town" width="512" height="1152"/>
+   <image source="Maps/spring_town" width="512" height="1152"/>
   <tile id="45">
    <animation>
     <frame tileid="45" duration="1000"/>
@@ -1675,7 +1675,7 @@
   </tile>
  </tileset>
  <tileset firstgid="3371" name="night market" tilewidth="16" tileheight="16" tilecount="1368" columns="72">
-  <image source="Maps_night_market_tilesheet_objects" width="1152" height="312"/>
+   <image source="Maps/night_market_tilesheet_objects" width="1152" height="312"/>
   <tile id="260">
    <animation>
     <frame tileid="260" duration="1000"/>

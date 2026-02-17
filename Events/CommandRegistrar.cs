@@ -62,6 +62,9 @@ public sealed class CommandRegistrar
         this.mod.Helper.ConsoleCommands.Add("date_start", "Host-only map date start. Usage: date_start <dateId> <playerBNameOrId>", this.OnDateMapStart);
         this.mod.Helper.ConsoleCommands.Add("date_markers_dump", "Host-only dump Date_Beach markers.", this.OnDateMarkersDump);
         this.mod.Helper.ConsoleCommands.Add("date_end", "Host-only end active map date.", this.OnDateMapEnd);
+        this.mod.Helper.ConsoleCommands.Add("date_asset_test", "Host-only: load Maps/Date_Beach and log diagnostics.", this.OnDateAssetTest);
+        this.mod.Helper.ConsoleCommands.Add("date_warp_test", "Host-only: warp to Date_Beach at (10,10).", this.OnDateWarpTest);
+        this.mod.Helper.ConsoleCommands.Add("date_export_hint", "Show patch export guidance for Date_Beach.", this.OnDateExportHint);
 
         this.mod.Helper.ConsoleCommands.Add("pr.hands.request", "Request holding hands with a player. Usage: pr.hands.request <player>", this.OnHandsRequest);
         this.mod.Helper.ConsoleCommands.Add("pr.hands.accept", "Accept pending holding hands request.", this.OnHandsAccept);
@@ -702,6 +705,44 @@ public sealed class CommandRegistrar
         }
 
         this.Finish(this.mod.DateEventController.EndDateFromLocal(out string msg), msg);
+    }
+
+    private void OnDateAssetTest(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run date_asset_test.", "[PR.System.DateEvent]");
+            return;
+        }
+
+        this.Finish(this.mod.DateEventController.DateAssetTestFromLocal(out string msg), msg);
+    }
+
+    private void OnDateWarpTest(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run date_warp_test.", "[PR.System.DateEvent]");
+            return;
+        }
+
+        this.Finish(this.mod.DateEventController.DateWarpTestFromLocal(out string msg), msg);
+    }
+
+    private void OnDateExportHint(string command, string[] args)
+    {
+        this.mod.DateEventController.LogDateExportHint();
+        this.mod.Notifier.NotifyInfo("Date export hint logged.", "[PR.System.DateEvent]");
     }
 
     private void OnHandsRequest(string command, string[] args)

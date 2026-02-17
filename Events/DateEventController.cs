@@ -8,6 +8,9 @@ using StardewModdingAPI.Events;
 using StardewValley;
 using StardewValley.Menus;
 using StardewValley.Network;
+using System.Globalization;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using xTile.Dimensions;
 
 namespace PlayerRomance.Events;
@@ -26,6 +29,36 @@ public sealed class DateEventController
         this.mod = mod;
         this.markerReader = new Systems.MapMarkerReader(mod);
         this.LoadDefinitions();
+    }
+
+    public void OnGameLaunched()
+    {
+        string mapsDir = Path.Combine(this.mod.Helper.DirectoryPath, "assets", "Maps");
+        bool mapsDirExists = Directory.Exists(mapsDir);
+        bool mapFileExists = File.Exists(Path.Combine(mapsDir, "Date_Beach.tmx"));
+        this.mod.Monitor.Log($"[PR.System.DateEvent] Date map pack present: dir={mapsDirExists}, Date_Beach.tmx={mapFileExists}.", LogLevel.Info);
+        if (mapsDirExists)
+        {
+            string[] files = Directory.GetFiles(mapsDir, "*", SearchOption.TopDirectoryOnly)
+                .Select(Path.GetFileName)
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .OrderBy(p => p)
+                .ToArray()!;
+            this.mod.Monitor.Log($"[PR.System.DateEvent] Map files: {string.Join(", ", files)}", LogLevel.Trace);
+        }
+
+        this.RunDateMapFileDiagnostics();
+    }
+
+    public void OnAssetRequested(AssetRequestedEventArgs e)
+    {
+        if (!e.NameWithoutLocale.IsEquivalentTo("Maps/Date_Beach"))
+        {
+            return;
+        }
+
+        e.LoadFromModFile<xTile.Map>(Path.Combine("assets", "Maps", "Date_Beach.tmx"), AssetLoadPriority.Exclusive);
+        this.mod.Monitor.Log("[PR.System.DateEvent] Injected map asset 'Maps/Date_Beach' from mod assets.", LogLevel.Trace);
     }
 
     public bool StartDateFromLocal(string partnerToken, out string message)
@@ -118,10 +151,10 @@ public sealed class DateEventController
             return false;
         }
 
-        GameLocation? location = Game1.getLocationFromName("Date_Beach");
+        GameLocation? location = this.EnsureDateLocationLoaded("Date_Beach", out string ensureError);
         if (location is null)
         {
-            message = "Location 'Date_Beach' not found.";
+            message = $"Location 'Date_Beach' not found. {ensureError}";
             return false;
         }
 
@@ -139,6 +172,76 @@ public sealed class DateEventController
 
         message = $"Dumped {markers.Count} marker(s).";
         return true;
+    }
+
+    public bool DateAssetTestFromLocal(out string message)
+    {
+        if (!Context.IsWorldReady)
+        {
+            message = "World not ready.";
+            return false;
+        }
+
+        if (this.TryLoadDateBeachMap(out xTile.Map? map, out string error))
+        {
+            message = $"Date asset load OK: layers={map!.Layers.Count}, size={map.DisplayWidth}x{map.DisplayHeight}.";
+            this.mod.Monitor.Log($"[PR.System.DateEvent] {message}", LogLevel.Info);
+            return true;
+        }
+
+        message = $"Date asset load FAILED: {error}";
+        this.mod.Monitor.Log($"[PR.System.DateEvent] {message}", LogLevel.Error);
+        return false;
+    }
+
+    public bool DateWarpTestFromLocal(out string message)
+    {
+        if (!Context.IsWorldReady)
+        {
+            message = "World not ready.";
+            return false;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            message = "Only host can run date_warp_test.";
+            return false;
+        }
+
+        if (!this.TryLoadDateBeachMap(out _, out string loadError))
+        {
+            message = $"Warp test blocked: asset test failed ({loadError}).";
+            this.mod.Monitor.Log($"[PR.System.DateEvent] {message}", LogLevel.Error);
+            return false;
+        }
+
+        try
+        {
+            GameLocation? location = this.EnsureDateLocationLoaded("Date_Beach", out string ensureError);
+            if (location is null)
+            {
+                message = $"Warp test failed to ensure location: {ensureError}";
+                return false;
+            }
+
+            Game1.warpFarmer("Date_Beach", 10, 10, false);
+            message = "Warp test OK -> Date_Beach (10,10).";
+            this.mod.Monitor.Log($"[PR.System.DateEvent] {message}", LogLevel.Info);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            message = $"Warp test FAILED: {ex.GetType().Name}: {ex.Message}";
+            this.mod.Monitor.Log($"[PR.System.DateEvent] {message}\n{ex}", LogLevel.Error);
+            this.RunDateMapFileDiagnostics();
+            return false;
+        }
+    }
+
+    public void LogDateExportHint()
+    {
+        this.mod.Monitor.Log("[PR.System.DateEvent] patch export 'Maps/Date_Beach' requires the asset to be loadable. Run date_asset_test first, then export.", LogLevel.Info);
+        this.mod.Monitor.Log("[PR.System.DateEvent] If export fails, verify TMX tileset image paths and that Date_Beach is injected via AssetRequested.", LogLevel.Info);
     }
 
     public void HandleStartDateRequestHost(StartPairEventMessage request, long senderId)
@@ -375,10 +478,10 @@ public sealed class DateEventController
 
     private bool StartDateHost(DateEventDefinition definition, Farmer farmerA, Farmer farmerB, out string message)
     {
-        GameLocation? dateLocation = Game1.getLocationFromName(definition.MapName);
+        GameLocation? dateLocation = this.EnsureDateLocationLoaded(definition.MapName, out string ensureError);
         if (dateLocation is null)
         {
-            message = $"Date map '{definition.MapName}' not found.";
+            message = $"Date map '{definition.MapName}' not found. {ensureError}";
             return false;
         }
 
@@ -786,6 +889,222 @@ public sealed class DateEventController
         }
 
         this.mod.Monitor.Log($"[PR.System.DateEvent] Loaded {this.definitionsById.Count} date definition(s).", LogLevel.Trace);
+    }
+
+    private void RunDateMapFileDiagnostics()
+    {
+        string mapPath = Path.Combine(this.mod.Helper.DirectoryPath, "assets", "Maps", "Date_Beach.tmx");
+        if (!File.Exists(mapPath))
+        {
+            this.mod.Monitor.Log("[PR.System.DateEvent] Date_Beach.tmx not found in assets/Maps.", LogLevel.Error);
+            return;
+        }
+
+        XDocument doc;
+        try
+        {
+            doc = XDocument.Load(mapPath);
+        }
+        catch (Exception ex)
+        {
+            this.mod.Monitor.Log($"[PR.System.DateEvent] Could not parse Date_Beach.tmx: {ex.Message}", LogLevel.Error);
+            return;
+        }
+
+        bool absolutePathDetected = false;
+        foreach (XElement tileset in doc.Root?.Elements("tileset") ?? Enumerable.Empty<XElement>())
+        {
+            string tilesetName = ((string?)tileset.Attribute("name") ?? "(unnamed)").Trim();
+            string? src = (string?)tileset.Attribute("source");
+            this.LogTilesheetResolution(tilesetName, "source", src, mapPath);
+            if (LooksAbsolutePath(src))
+            {
+                absolutePathDetected = true;
+                this.mod.Monitor.Log($"[PR.System.DateEvent] Absolute TSX path detected: {src}", LogLevel.Error);
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(src) && (src.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase) || src.EndsWith(".png", StringComparison.OrdinalIgnoreCase)))
+            {
+                string path = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(mapPath)!, src));
+                if (!File.Exists(path))
+                {
+                    this.mod.Monitor.Log($"[PR.System.DateEvent] Missing tileset reference: {src} ({path})", LogLevel.Error);
+                }
+            }
+
+            string? imageSrc = (string?)tileset.Element("image")?.Attribute("source");
+            this.LogTilesheetResolution(tilesetName, "image", imageSrc, mapPath);
+            if (LooksAbsolutePath(imageSrc))
+            {
+                absolutePathDetected = true;
+                this.mod.Monitor.Log($"[PR.System.DateEvent] Absolute tilesheet image path detected: {imageSrc}", LogLevel.Error);
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(imageSrc)
+                && (imageSrc.Contains("/") || imageSrc.Contains("\\") || imageSrc.EndsWith(".png", StringComparison.OrdinalIgnoreCase)))
+            {
+                string path = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(mapPath)!, imageSrc));
+                if (!File.Exists(path) && Path.HasExtension(imageSrc))
+                {
+                    this.mod.Monitor.Log($"[PR.System.DateEvent] Missing tilesheet image: {imageSrc} ({path})", LogLevel.Error);
+                }
+            }
+        }
+
+        HashSet<string> tileLayers = doc.Root?
+            .Elements("layer")
+            .Select(p => ((string?)p.Attribute("name") ?? string.Empty).Trim())
+            .Where(p => p.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string required in new[] { "Back", "Buildings", "Front" })
+        {
+            if (!tileLayers.Contains(required))
+            {
+                this.mod.Monitor.Log($"[PR.System.DateEvent] Missing tile layer '{required}' in Date_Beach.tmx.", LogLevel.Warn);
+            }
+        }
+
+        if (absolutePathDetected)
+        {
+            this.mod.Monitor.Log("[PR.System.DateEvent] Fix hint: use relative tileset/image paths in TMX/TSX (e.g. ../Tilesheets/<name>.png), avoid absolute local paths.", LogLevel.Error);
+        }
+    }
+
+    private bool TryLoadDateBeachMap(out xTile.Map? map, out string error)
+    {
+        try
+        {
+            map = this.mod.Helper.GameContent.Load<xTile.Map>("Maps/Date_Beach");
+            error = string.Empty;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            map = null;
+            error = $"{ex.GetType().Name}: {ex.Message}";
+            this.mod.Monitor.Log($"[PR.System.DateEvent] Date map load exception: {error}", LogLevel.Error);
+            this.LogTilesheetFailureHint(ex);
+            this.RunDateMapFileDiagnostics();
+            return false;
+        }
+    }
+
+    private void LogTilesheetFailureHint(Exception ex)
+    {
+        string? rawTilesheetPath = TryExtractTilesheetPathFromError(ex.Message);
+        if (string.IsNullOrWhiteSpace(rawTilesheetPath))
+        {
+            return;
+        }
+
+        this.mod.Monitor.Log($"[PR.System.DateEvent] Missing/invalid tilesheet from loader: '{rawTilesheetPath}'.", LogLevel.Error);
+        this.mod.Monitor.Log($"[PR.System.DateEvent] Expected vanilla XNB path: {this.GetGameContentCandidate(rawTilesheetPath)}", LogLevel.Error);
+
+        string normalized = NormalizeLikelyVanillaAsset(rawTilesheetPath);
+        if (!string.Equals(normalized, rawTilesheetPath, StringComparison.Ordinal))
+        {
+            this.mod.Monitor.Log($"[PR.System.DateEvent] Suggested TMX image source fix: '{normalized}'.", LogLevel.Error);
+            this.mod.Monitor.Log($"[PR.System.DateEvent] Suggested vanilla XNB path: {this.GetGameContentCandidate(normalized)}", LogLevel.Error);
+        }
+    }
+
+    private void LogTilesheetResolution(string tilesetName, string fieldName, string? value, string mapPath)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        string trimmed = value.Trim();
+        string relativeCandidate = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(mapPath)!, trimmed));
+        string gameContentCandidate = this.GetGameContentCandidate(trimmed);
+        this.mod.Monitor.Log(
+            $"[PR.System.DateEvent] TMX tileset '{tilesetName}' {fieldName}='{trimmed}' | relative='{relativeCandidate}' | gameContent='{gameContentCandidate}'",
+            LogLevel.Trace);
+    }
+
+    private string GetGameContentCandidate(string tilesheetValue)
+    {
+        string normalized = tilesheetValue.Replace('\\', '/').TrimStart('/');
+        bool hasExtension = Path.HasExtension(normalized);
+        string withExtension = hasExtension ? normalized : $"{normalized}.xnb";
+        return Path.GetFullPath(Path.Combine(this.mod.Helper.DirectoryPath, "..", "..", "Content", withExtension.Replace('/', Path.DirectorySeparatorChar)));
+    }
+
+    private static string? TryExtractTilesheetPathFromError(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return null;
+        }
+
+        Match match = Regex.Match(message, "tilesheet path '([^']+)'", RegexOptions.IgnoreCase);
+        if (!match.Success)
+        {
+            match = Regex.Match(message, "tilesheet path \"([^\"]+)\"", RegexOptions.IgnoreCase);
+        }
+
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    private static string NormalizeLikelyVanillaAsset(string path)
+    {
+        string normalized = path.Replace('\\', '/');
+        const string duplicatePrefix = "Maps/Maps_";
+        if (normalized.StartsWith(duplicatePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Maps/{normalized.Substring(duplicatePrefix.Length)}";
+        }
+
+        return normalized;
+    }
+
+    private static bool LooksAbsolutePath(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        string v = value.Trim();
+        if (v.Contains(":\\", StringComparison.OrdinalIgnoreCase)
+            || v.StartsWith("/Users/", StringComparison.OrdinalIgnoreCase)
+            || v.StartsWith("/home/", StringComparison.OrdinalIgnoreCase)
+            || v.StartsWith("\\\\", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return Path.IsPathRooted(v) && Path.HasExtension(v);
+    }
+
+    private GameLocation? EnsureDateLocationLoaded(string locationName, out string error)
+    {
+        error = string.Empty;
+        GameLocation? existing = Game1.getLocationFromName(locationName);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        try
+        {
+            GameLocation location = new($"Maps/{locationName}", locationName);
+            location.IsOutdoors = true;
+            Game1.locations.Add(location);
+            this.mod.Monitor.Log($"[PR.System.DateEvent] Created runtime location '{locationName}' from map asset.", LogLevel.Info);
+            return location;
+        }
+        catch (Exception ex)
+        {
+            error = $"{ex.GetType().Name}: {ex.Message}";
+            this.mod.Monitor.Log($"[PR.System.DateEvent] Could not create location '{locationName}': {error}\n{ex}", LogLevel.Error);
+            return null;
+        }
     }
 
     private void DispatchPairEventToParticipants(StartPairEventMessage message, long playerAId, long playerBId)

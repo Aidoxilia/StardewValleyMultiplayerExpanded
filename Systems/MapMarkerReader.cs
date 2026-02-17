@@ -1,5 +1,7 @@
 using Microsoft.Xna.Framework;
 using StardewValley;
+using System.Globalization;
+using System.Xml.Linq;
 using xTile;
 using xTile.Layers;
 using xTile.Tiles;
@@ -28,6 +30,13 @@ public sealed class MapMarkerReader
         Dictionary<string, MarkerInfo> markers = new(StringComparer.OrdinalIgnoreCase);
         if (location?.Map is null)
         {
+            return markers;
+        }
+
+        this.ReadFromTmxObjectLayer(location, markers);
+        if (markers.Count > 0)
+        {
+            this.mod.Monitor.Log($"[PR.System.DateEvent] Read {markers.Count} marker(s) from TMX object layer for '{location.NameOrUniqueName}'.", StardewModdingAPI.LogLevel.Trace);
             return markers;
         }
 
@@ -89,6 +98,115 @@ public sealed class MapMarkerReader
 
         this.mod.Monitor.Log($"[PR.System.DateEvent] Read {markers.Count} marker(s) on map '{location.NameOrUniqueName}'.", StardewModdingAPI.LogLevel.Trace);
         return markers;
+    }
+
+    private void ReadFromTmxObjectLayer(GameLocation location, IDictionary<string, MarkerInfo> markers)
+    {
+        string fileName = $"{location.NameOrUniqueName}.tmx";
+        string mapPath = Path.Combine(this.mod.Helper.DirectoryPath, "assets", "Maps", fileName);
+        if (!File.Exists(mapPath))
+        {
+            return;
+        }
+
+        XDocument doc;
+        try
+        {
+            doc = XDocument.Load(mapPath);
+        }
+        catch
+        {
+            return;
+        }
+
+        XElement? markerGroup = doc.Root?
+            .Elements("objectgroup")
+            .FirstOrDefault(p => string.Equals((string?)p.Attribute("name"), "Markers", StringComparison.OrdinalIgnoreCase))
+            ?? doc.Root?
+                .Elements("objectgroup")
+                .FirstOrDefault(p => ((string?)p.Attribute("name"))?.Contains("Marker", StringComparison.OrdinalIgnoreCase) == true);
+        if (markerGroup is null)
+        {
+            return;
+        }
+
+        float tileSize = ParseFloat((string?)doc.Root?.Attribute("tilewidth"), 16f);
+        foreach (XElement obj in markerGroup.Elements("object"))
+        {
+            string name = ((string?)obj.Attribute("name") ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            string markerClass = ((string?)obj.Attribute("class") ?? (string?)obj.Attribute("type") ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(markerClass))
+            {
+                markerClass = ReadObjectProperty(obj, "Class")
+                              ?? ReadObjectProperty(obj, "class")
+                              ?? ReadObjectProperty(obj, "Type")
+                              ?? ReadObjectProperty(obj, "type")
+                              ?? string.Empty;
+            }
+
+            if (!IsSupportedMarkerClass(markerClass))
+            {
+                if (name.StartsWith("Player", StringComparison.OrdinalIgnoreCase))
+                {
+                    markerClass = "Player_Spot";
+                }
+                else if (name.StartsWith("Npc_Spot", StringComparison.OrdinalIgnoreCase))
+                {
+                    markerClass = "Npc_Spot";
+                }
+            }
+
+            if (!IsSupportedMarkerClass(markerClass))
+            {
+                continue;
+            }
+
+            float x = ParseFloat((string?)obj.Attribute("x"), 0f);
+            float y = ParseFloat((string?)obj.Attribute("y"), 0f);
+            int tileX = (int)Math.Floor(x / Math.Max(1f, tileSize));
+            int tileY = (int)Math.Floor(y / Math.Max(1f, tileSize));
+
+            markers[name] = new MarkerInfo
+            {
+                Name = name,
+                Class = markerClass,
+                TileX = tileX,
+                TileY = tileY
+            };
+        }
+    }
+
+    private static string? ReadObjectProperty(XElement obj, string key)
+    {
+        XElement? property = obj.Element("properties")?
+            .Elements("property")
+            .FirstOrDefault(p => string.Equals((string?)p.Attribute("name"), key, StringComparison.OrdinalIgnoreCase));
+        if (property is null)
+        {
+            return null;
+        }
+
+        return ((string?)property.Attribute("value") ?? property.Value)?.Trim();
+    }
+
+    private static float ParseFloat(string? value, float fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fallback;
+        }
+
+        if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed))
+        {
+            return parsed;
+        }
+
+        return fallback;
     }
 
     public static Vector2 GetMarkerTileOrFallback(IReadOnlyDictionary<string, MarkerInfo> markers, string markerName, Vector2 fallback)

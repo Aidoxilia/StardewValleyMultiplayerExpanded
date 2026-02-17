@@ -40,6 +40,7 @@ public sealed class ModEntry : Mod
     internal CarrySystem CarrySystem { get; private set; } = null!;
     internal HoldingHandsSystem HoldingHandsSystem { get; private set; } = null!;
     internal CoupleSynergySystem CoupleSynergySystem { get; private set; } = null!;
+    internal LegacyChildrenSystem LegacyChildrenSystem { get; private set; } = null!;
     internal DateImmersionSystem DateImmersionSystem { get; private set; } = null!;
 
     internal DateEventController DateEventController { get; private set; } = null!;
@@ -78,6 +79,7 @@ public sealed class ModEntry : Mod
         this.CarrySystem = new CarrySystem(this);
         this.HoldingHandsSystem = new HoldingHandsSystem(this);
         this.CoupleSynergySystem = new CoupleSynergySystem(this);
+        this.LegacyChildrenSystem = new LegacyChildrenSystem(this);
         this.DateImmersionSystem = new DateImmersionSystem(this);
 
         this.DateEventController = new DateEventController(this);
@@ -101,6 +103,7 @@ public sealed class ModEntry : Mod
         this.CarrySystem.Reset();
         this.HoldingHandsSystem.Reset();
         this.CoupleSynergySystem.Reset();
+        this.LegacyChildrenSystem.Reset();
         this.DateImmersionSystem.Reset();
         this.ChildGrowthSystem.Reset();
         this.RequestPrompts.Clear();
@@ -166,6 +169,7 @@ public sealed class ModEntry : Mod
         this.CarrySystem.Reset();
         this.HoldingHandsSystem.Reset();
         this.CoupleSynergySystem.Reset();
+        this.LegacyChildrenSystem.Reset();
         this.DateImmersionSystem.Reset();
         this.ChildGrowthSystem.Reset();
         this.RequestPrompts.Clear();

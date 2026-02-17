@@ -35,6 +35,11 @@ public sealed class CoupleSynergySystem
             return;
         }
 
+        if (!this.mod.Config.EnableSynergySystem)
+        {
+            return;
+        }
+
         if (this.mod.Config.EnableCoupleSynergy && this.mod.Config.EnableWakeupCuddleBuff)
         {
             this.ApplyWakeupCuddleHost();
@@ -78,6 +83,11 @@ public sealed class CoupleSynergySystem
     public void OnOneSecondUpdateTickedHost()
     {
         if (!this.mod.IsHostPlayer)
+        {
+            return;
+        }
+
+        if (!this.mod.Config.EnableSynergySystem)
         {
             return;
         }

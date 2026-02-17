@@ -50,10 +50,18 @@ public sealed class ModConfig
     public int MarriageMinDatingDays { get; set; } = 3;
 
     public bool EnableCoupleSynergy { get; set; } = true;
+    public bool EnableSynergySystem { get; set; } = true;
+    public bool EnableLegacyChildren { get; set; } = true;
     public bool EnableRpInteractions { get; set; } = false;
     public bool EnableRelationshipEvents { get; set; } = false;
     public bool EnableCombatDuo { get; set; } = false;
     public bool EnableChildEducationTraits { get; set; } = false;
+    public bool TuitionEnabled { get; set; } = true;
+    public int TuitionMin { get; set; } = 500;
+    public int TuitionMax { get; set; } = 2000;
+    public float TeenChoreForgetChance { get; set; } = 0.2f;
+    public bool AdultSpecialization { get; set; } = true;
+    public int TeleportRingCooldownMinutes { get; set; } = 10;
 
     public bool EnableWakeupCuddleBuff { get; set; } = true;
     public bool EnableLoveAura { get; set; } = true;

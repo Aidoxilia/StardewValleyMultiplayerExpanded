@@ -20,6 +20,21 @@ public enum ChildTaskType
     Stop = 7
 }
 
+public enum LegacyChildAssignment
+{
+    None = 0,
+    Forager = 1,
+    CrabPotAssistant = 2
+}
+
+public enum LegacyChildSpecialization
+{
+    None = 0,
+    Rancher = 1,
+    Artisan = 2,
+    Geologist = 3
+}
+
 public sealed class ChildVisualProfile
 {
     public int MixSeed { get; set; }
@@ -53,6 +68,11 @@ public sealed class ChildRecord
     public ChildTaskType AssignedTask { get; set; } = ChildTaskType.Auto;
     public bool AutoMode { get; set; } = true;
     public int LastWorkedDay { get; set; } = -1;
+    public int EducationScore { get; set; }
+    public LegacyChildAssignment LegacyAssignment { get; set; } = LegacyChildAssignment.None;
+    public LegacyChildSpecialization LegacySpecialization { get; set; } = LegacyChildSpecialization.None;
+    public int LastTuitionDay { get; set; } = -1;
+    public int LastLegacyTaskDay { get; set; } = -1;
     public string RoutineZone { get; set; } = "FarmHouse";
     public string RuntimeNpcName { get; set; } = string.Empty;
     public bool RuntimeNpcSpawned { get; set; }

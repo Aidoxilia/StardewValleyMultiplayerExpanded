@@ -186,7 +186,16 @@ public sealed class ChildGrowthSystem
                     continue;
                 }
 
-                npc.Position = safeTile * 64f;
+                Vector2 targetPos = safeTile * 64f;
+                Vector2 delta = targetPos - npc.Position;
+                float step = 6f;
+                if (delta.Length() > step)
+                {
+                    delta.Normalize();
+                    delta *= step;
+                }
+
+                npc.Position += delta;
                 npc.FacingDirection = Math.Abs(move.X) >= Math.Abs(move.Y)
                     ? (move.X >= 0f ? 1 : 3)
                     : (move.Y >= 0f ? 2 : 0);

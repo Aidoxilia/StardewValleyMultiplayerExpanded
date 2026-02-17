@@ -37,6 +37,7 @@ public sealed class GameEventOrchestrator
     private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
     {
         this.mod.Monitor.Log("[PR.Core] Game launched. Player Romance initialized.", LogLevel.Info);
+        this.mod.DateEventController.OnGameLaunched();
     }
 
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
@@ -60,6 +61,7 @@ public sealed class GameEventOrchestrator
         this.mod.PregnancySystem.OnDayStartedHost();
         this.mod.ChildGrowthSystem.OnDayStartedHost();
         this.mod.FarmWorkerSystem.OnDayStartedHost();
+        this.mod.LegacyChildrenSystem.OnDayStartedHost();
         this.mod.CoupleSynergySystem.OnDayStartedHost();
         this.mod.DateEventController.OnDayStartedHost();
     }
@@ -227,5 +229,6 @@ public sealed class GameEventOrchestrator
     private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
     {
         this.mod.ChildGrowthSystem.OnAssetRequested(e);
+        this.mod.DateEventController.OnAssetRequested(e);
     }
 }
