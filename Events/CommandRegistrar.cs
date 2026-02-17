@@ -38,6 +38,8 @@ public sealed class CommandRegistrar
 
         this.mod.Helper.ConsoleCommands.Add("pr.worker.runonce", "Run adult child worker pass immediately (host).", this.OnRunWorker);
         this.mod.Helper.ConsoleCommands.Add("pr.child.feed", "Feed a child (host-authoritative). Usage: pr.child.feed <childId> [itemId]", this.OnChildFeed);
+        this.mod.Helper.ConsoleCommands.Add("pr.child.feed.menu", "Open feed inventory menu for child. Usage: pr.child.feed.menu <childId>", this.OnChildFeedMenu);
+        this.mod.Helper.ConsoleCommands.Add("pr.child.interact", "Run child interaction action. Usage: pr.child.interact <childId> <care|play|feed>", this.OnChildInteract);
         this.mod.Helper.ConsoleCommands.Add("pr.child.status", "Show child status. Usage: pr.child.status [childId]", this.OnChildStatus);
         this.mod.Helper.ConsoleCommands.Add("pr.child.age.set", "Debug set child age in years (host). Usage: pr.child.age.set <childId> <years>", this.OnChildAgeSet);
         this.mod.Helper.ConsoleCommands.Add("pr.child.task", "Assign child task. Usage: pr.child.task <childId> <auto|water|feed|collect|harvest|ship|fish|stop>", this.OnChildTask);
@@ -63,6 +65,10 @@ public sealed class CommandRegistrar
         this.mod.Helper.ConsoleCommands.Add("pr.hands.reject", "Reject pending holding hands request.", this.OnHandsReject);
         this.mod.Helper.ConsoleCommands.Add("pr.hands.stop", "Stop active holding hands session. Usage: pr.hands.stop [player]", this.OnHandsStop);
         this.mod.Helper.ConsoleCommands.Add("pr.hands.debug.status", "Debug holding hands runtime status.", this.OnHandsDebugStatus);
+
+        this.mod.Helper.ConsoleCommands.Add("romance_status", "Debug relationship and systems status (host only).", this.OnRomanceStatus);
+        this.mod.Helper.ConsoleCommands.Add("children_list", "Debug list of children state (host only).", this.OnChildrenList);
+        this.mod.Helper.ConsoleCommands.Add("synergy_test", "Debug run couple synergy checks (host only).", this.OnSynergyTest);
     }
 
     private void OnProposeDating(string command, string[] args)
@@ -380,6 +386,26 @@ public sealed class CommandRegistrar
         this.Finish(this.mod.ChildGrowthSystem.FeedChildFromLocal(args[0], itemId, out string msg), msg);
     }
 
+    private void OnChildFeedMenu(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        {
+            return;
+        }
+
+        this.Finish(this.mod.ChildGrowthSystem.OpenFeedInventoryMenuFromLocal(args[0], out string msg), msg);
+    }
+
+    private void OnChildInteract(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 2))
+        {
+            return;
+        }
+
+        this.Finish(this.mod.ChildGrowthSystem.InteractChildFromLocal(args[0], args[1], out string msg), msg);
+    }
+
     private void OnChildStatus(string command, string[] args)
     {
         if (!this.RequireWorldReady())
@@ -676,6 +702,81 @@ public sealed class CommandRegistrar
         }
 
         this.Finish(this.mod.HoldingHandsSystem.GetDebugStatusFromLocal(out string msg), msg);
+    }
+
+    private void OnRomanceStatus(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run romance_status.", "[PR.Core]");
+            return;
+        }
+
+        int rel = this.mod.HostSaveData.Relationships.Count;
+        int children = this.mod.HostSaveData.Children.Count;
+        int preg = this.mod.HostSaveData.Pregnancies.Count;
+        this.mod.Notifier.NotifyInfo($"Host status: relationships={rel}, children={children}, pregnancies={preg}.", "[PR.Core]");
+    }
+
+    private void OnChildrenList(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run children_list.", "[PR.System.ChildGrowth]");
+            return;
+        }
+
+        if (this.mod.HostSaveData.Children.Count == 0)
+        {
+            this.mod.Notifier.NotifyInfo("No children found.", "[PR.System.ChildGrowth]");
+            return;
+        }
+
+        foreach (ChildRecord child in this.mod.HostSaveData.Children.Values.OrderBy(p => p.ChildName))
+        {
+            this.mod.Notifier.NotifyInfo(
+                $"{child.ChildName} [{child.ChildId}] age={child.AgeYears}y fed={child.IsFedToday} care={child.IsCaredToday} play={child.IsPlayedToday} task={child.AssignedTask}",
+                "[PR.System.ChildGrowth]");
+        }
+    }
+
+    private void OnSynergyTest(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run synergy_test.", "[PR.System.Synergy]");
+            return;
+        }
+
+        if (!this.mod.Config.EnableCoupleSynergy)
+        {
+            this.mod.Notifier.NotifyWarn("Couple synergy module is disabled in config.", "[PR.System.Synergy]");
+            return;
+        }
+
+        if (this.mod.CoupleSynergySystem.RunDebugProbe(out string report))
+        {
+            this.mod.Notifier.NotifyInfo($"Synergy probe: {report}", "[PR.System.Synergy]");
+        }
+        else
+        {
+            this.mod.Notifier.NotifyWarn(report, "[PR.System.Synergy]");
+        }
     }
 
     private bool RequireWorldReady()

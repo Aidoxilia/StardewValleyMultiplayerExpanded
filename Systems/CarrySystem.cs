@@ -1,6 +1,8 @@
 using Microsoft.Xna.Framework;
 using PlayerRomance.Data;
 using PlayerRomance.Net;
+using StardewModdingAPI;
+using StardewModdingAPI.Events;
 using StardewValley;
 
 namespace PlayerRomance.Systems;
@@ -283,8 +285,11 @@ public sealed class CarrySystem
 
             if (carrier.currentLocation != carried.currentLocation)
             {
-                this.StopCarryHost(session, "location changed");
-                continue;
+                if (!this.TryReconcileLocationMismatch(session, carrier, carried))
+                {
+                    this.StopCarryHost(session, "location changed");
+                    continue;
+                }
             }
 
             carried.CanMove = false;
@@ -352,6 +357,31 @@ public sealed class CarrySystem
         foreach (CarrySessionState session in this.activeHostSessions.Values.Where(p => p.CarrierId == playerId || p.CarriedId == playerId).ToList())
         {
             this.StopCarryHost(session, "peer disconnected");
+        }
+    }
+
+    public void OnWarpedHost(WarpedEventArgs e)
+    {
+        if (!this.mod.IsHostPlayer || !Context.IsWorldReady || !e.IsLocalPlayer)
+        {
+            return;
+        }
+
+        long warpedPlayerId = this.mod.LocalPlayerId;
+        foreach (CarrySessionState session in this.activeHostSessions.Values.Where(p => p.CarrierId == warpedPlayerId || p.CarriedId == warpedPlayerId).ToList())
+        {
+            Farmer? carrier = this.mod.FindFarmerById(session.CarrierId, includeOffline: false);
+            Farmer? carried = this.mod.FindFarmerById(session.CarriedId, includeOffline: false);
+            if (carrier is null || carried is null)
+            {
+                this.StopCarryHost(session, "player offline");
+                continue;
+            }
+
+            if (!this.TryReconcileLocationMismatch(session, carrier, carried))
+            {
+                this.StopCarryHost(session, "location changed");
+            }
         }
     }
 
@@ -604,6 +634,46 @@ public sealed class CarrySystem
     private static bool IsFatigued(Farmer farmer)
     {
         return farmer.exhausted.Value || farmer.Stamina <= 0f;
+    }
+
+    private bool TryReconcileLocationMismatch(CarrySessionState session, Farmer carrier, Farmer carried)
+    {
+        GameLocation? targetLocation = carrier.currentLocation;
+        if (targetLocation is null)
+        {
+            return false;
+        }
+
+        Vector2 targetTile = carrier.Tile + new Vector2(1f, 0f);
+        Vector2 targetPos = targetTile * 64f;
+        if (!float.IsFinite(targetPos.X) || !float.IsFinite(targetPos.Y))
+        {
+            return false;
+        }
+
+        if (carried.currentLocation != targetLocation)
+        {
+            carried.currentLocation = targetLocation;
+            carried.setTileLocation(targetTile);
+            this.mod.Monitor.Log(
+                $"[PR.System.Carry] Carry session {session.CarrierId}->{session.CarriedId}: warped carried player to '{targetLocation.NameOrUniqueName}'.",
+                StardewModdingAPI.LogLevel.Trace);
+        }
+
+        carried.CanMove = false;
+        carried.Position = targetPos + new Vector2(0f, this.mod.Config.CarryOffsetY);
+        carried.FacingDirection = carrier.FacingDirection;
+        this.mod.NetSync.Broadcast(
+            MessageType.CarryState,
+            new CarryStateMessage
+            {
+                CarrierId = session.CarrierId,
+                CarriedId = session.CarriedId,
+                Active = true,
+                Reason = "location_sync"
+            });
+        this.mod.NetSync.BroadcastSnapshotToAll();
+        return true;
     }
 
     private void TryPlayEmote(long playerId, int emoteId)

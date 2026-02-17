@@ -27,7 +27,9 @@ public sealed class GameEventOrchestrator
         events.Multiplayer.ModMessageReceived += this.OnModMessageReceived;
         events.Multiplayer.PeerConnected += this.OnPeerConnected;
         events.Multiplayer.PeerDisconnected += this.OnPeerDisconnected;
+        events.Player.Warped += this.OnWarped;
         events.Input.ButtonPressed += this.OnButtonPressed;
+        events.Display.RenderedWorld += this.OnRenderedWorld;
         events.Display.RenderedActiveMenu += this.OnRenderedActiveMenu;
         events.Content.AssetRequested += this.OnAssetRequested;
     }
@@ -58,6 +60,7 @@ public sealed class GameEventOrchestrator
         this.mod.PregnancySystem.OnDayStartedHost();
         this.mod.ChildGrowthSystem.OnDayStartedHost();
         this.mod.FarmWorkerSystem.OnDayStartedHost();
+        this.mod.CoupleSynergySystem.OnDayStartedHost();
     }
 
     private void OnDayEnding(object? sender, DayEndingEventArgs e)
@@ -68,6 +71,7 @@ public sealed class GameEventOrchestrator
         }
 
         this.mod.DateImmersionSystem.OnDayEndingHost();
+        this.mod.CoupleSynergySystem.OnDayEndingHost();
         this.mod.MarkDataDirty("Day ending flush.", flushNow: false);
     }
 
@@ -108,6 +112,7 @@ public sealed class GameEventOrchestrator
 
         this.mod.DateImmersionSystem.OnOneSecondUpdateTickedHost();
         this.mod.CarrySystem.OnOneSecondUpdateTickedHost();
+        this.mod.CoupleSynergySystem.OnOneSecondUpdateTickedHost();
     }
 
     private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
@@ -142,6 +147,16 @@ public sealed class GameEventOrchestrator
         this.mod.Monitor.Log($"[PR.Net] Peer disconnected: {e.Peer.PlayerID}", LogLevel.Trace);
     }
 
+    private void OnWarped(object? sender, WarpedEventArgs e)
+    {
+        if (!this.mod.IsHostPlayer)
+        {
+            return;
+        }
+
+        this.mod.CarrySystem.OnWarpedHost(e);
+    }
+
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
     {
         if (!Context.IsWorldReady || !Context.IsPlayerFree)
@@ -150,6 +165,16 @@ public sealed class GameEventOrchestrator
         }
 
         if (this.mod.DateImmersionSystem.TryHandleLocalInteractionButton(e))
+        {
+            return;
+        }
+
+        if (this.mod.SocialVanillaSystem.TryHandleSocialMenuClick(e))
+        {
+            return;
+        }
+
+        if (this.mod.ChildGrowthSystem.TryHandleLocalInteractionButton(e))
         {
             return;
         }
@@ -174,17 +199,22 @@ public sealed class GameEventOrchestrator
             return;
         }
 
-        if (e.Button != SButton.F8)
+        if (e.Button != this.mod.GetChildrenManagementHotkey())
         {
             return;
         }
 
-        Game1.activeClickableMenu = new UI.RomanceMenu(this.mod);
+        Game1.activeClickableMenu = new UI.ChildrenManagementMenu(this.mod);
     }
 
     private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
     {
-        this.mod.SocialOverlay.Draw(e.SpriteBatch);
+        this.mod.SocialVanillaSystem.Draw(e.SpriteBatch);
+    }
+
+    private void OnRenderedWorld(object? sender, RenderedWorldEventArgs e)
+    {
+        this.mod.ChildGrowthSystem.OnRenderedWorldLocal(e);
     }
 
     private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)

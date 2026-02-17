@@ -47,6 +47,8 @@ public sealed class ChildRecord
     public int BirthDayNumber { get; set; }
     public int LastProcessedDay { get; set; }
     public bool IsFedToday { get; set; }
+    public bool IsCaredToday { get; set; }
+    public bool IsPlayedToday { get; set; }
     public int FeedingProgress { get; set; }
     public ChildTaskType AssignedTask { get; set; } = ChildTaskType.Auto;
     public bool AutoMode { get; set; } = true;

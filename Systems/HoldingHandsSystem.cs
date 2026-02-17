@@ -13,6 +13,7 @@ public sealed class HoldingHandsSystem
     private readonly Dictionary<string, HoldingHandsSessionState> activeHostSessions = new();
     private readonly Dictionary<string, HoldingHandsSessionState> observedSessions = new();
     private readonly Dictionary<string, (Vector2 leader, Vector2 follower)> lastPositions = new();
+    private readonly Dictionary<string, Vector2> followerVelocityBySession = new();
     private long? localPendingRequesterId;
 
     public HoldingHandsSystem(ModEntry mod)
@@ -26,6 +27,7 @@ public sealed class HoldingHandsSystem
         this.activeHostSessions.Clear();
         this.observedSessions.Clear();
         this.lastPositions.Clear();
+        this.followerVelocityBySession.Clear();
         this.localPendingRequesterId = null;
     }
 
@@ -279,27 +281,39 @@ public sealed class HoldingHandsSystem
                 continue;
             }
 
-            this.HandleLeaderSwitchByMovement(key, session, leader, follower);
-            leader = this.mod.FindFarmerById(session.LeaderId, includeOffline: false);
-            follower = this.mod.FindFarmerById(session.FollowerId, includeOffline: false);
-            if (leader is null || follower is null)
-            {
-                this.StopHandsHost(session, "player offline");
-                continue;
-            }
-
             Vector2 sideOffset = this.GetFollowerOffsetPixels(leader.FacingDirection);
-            float sway = (float)Math.Sin(Game1.ticks / 10f) * 1.6f;
+            float sway = (float)Math.Sin(Game1.ticks / 11f) * 1.2f;
             Vector2 target = leader.Position + sideOffset + new Vector2(0f, sway);
-            Vector2 delta = target - follower.Position;
+            Vector2 error = target - follower.Position;
+            Vector2 velocity = this.followerVelocityBySession.TryGetValue(key, out Vector2 stored) ? stored : Vector2.Zero;
+
+            float spring = Math.Clamp(this.mod.Config.HandsSpringStrength, 0.01f, 0.8f);
+            float damping = Math.Clamp(this.mod.Config.HandsDamping, 0.01f, 0.99f);
+            velocity = velocity * damping + error * spring;
+
             float maxMove = Math.Max(1f, this.mod.Config.HandsMaxMovePixelsPerTick);
-            float deltaLen = delta.Length();
+            float deltaLen = velocity.Length();
             if (deltaLen > maxMove)
             {
-                delta *= maxMove / deltaLen;
+                velocity *= maxMove / deltaLen;
             }
 
-            Vector2 candidate = follower.Position + delta;
+            float softMaxDistTiles = Math.Max(0.75f, this.mod.Config.HoldingHandsSoftMaxDistanceTiles);
+            float softMaxDistPx = softMaxDistTiles * 64f;
+            Vector2 leaderToFollower = follower.Position - leader.Position;
+            if (leaderToFollower.Length() > softMaxDistPx)
+            {
+                Vector2 clamped = Vector2.Normalize(leaderToFollower) * softMaxDistPx;
+                Vector2 desired = leader.Position + clamped;
+                velocity = desired - follower.Position;
+                float vLen = velocity.Length();
+                if (vLen > maxMove)
+                {
+                    velocity *= maxMove / vLen;
+                }
+            }
+
+            Vector2 candidate = follower.Position + velocity;
             if (!this.IsSafeFollowerPosition(leader.currentLocation, candidate))
             {
                 this.LogStopDebug(session, "invalid_position", distanceTiles, leader, follower);
@@ -309,6 +323,7 @@ public sealed class HoldingHandsSystem
 
             follower.Position = candidate;
             follower.FacingDirection = leader.FacingDirection;
+            this.followerVelocityBySession[key] = velocity;
         }
     }
 
@@ -562,6 +577,7 @@ public sealed class HoldingHandsSystem
             StardewModdingAPI.LogLevel.Info);
 
         this.lastPositions.Remove(key);
+        this.followerVelocityBySession.Remove(key);
         this.mod.MarkDataDirty($"Holding hands stopped ({reason}).", flushNow: true);
 
         this.mod.NetSync.Broadcast(

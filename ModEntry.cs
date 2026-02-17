@@ -23,7 +23,7 @@ public sealed class ModEntry : Mod
     internal Dictionary<string, string> LastHeartEventsByPair { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     internal HudNotifier Notifier { get; private set; } = null!;
-    internal SocialOverlay SocialOverlay { get; private set; } = null!;
+    internal SocialVanillaSystem SocialVanillaSystem { get; private set; } = null!;
     internal RequestPromptService RequestPrompts { get; private set; } = null!;
 
     internal NetSyncService NetSync { get; private set; } = null!;
@@ -39,6 +39,7 @@ public sealed class ModEntry : Mod
     internal HeartsSystem HeartsSystem { get; private set; } = null!;
     internal CarrySystem CarrySystem { get; private set; } = null!;
     internal HoldingHandsSystem HoldingHandsSystem { get; private set; } = null!;
+    internal CoupleSynergySystem CoupleSynergySystem { get; private set; } = null!;
     internal DateImmersionSystem DateImmersionSystem { get; private set; } = null!;
 
     internal DateEventController DateEventController { get; private set; } = null!;
@@ -60,7 +61,7 @@ public sealed class ModEntry : Mod
         this.Harmony = new Harmony(this.ModManifest.UniqueID);
 
         this.Notifier = new HudNotifier(this);
-        this.SocialOverlay = new SocialOverlay(this);
+        this.SocialVanillaSystem = new SocialVanillaSystem(this);
         this.RequestPrompts = new RequestPromptService(this);
 
         this.NetSync = new NetSyncService(this);
@@ -76,6 +77,7 @@ public sealed class ModEntry : Mod
         this.HeartsSystem = new HeartsSystem(this);
         this.CarrySystem = new CarrySystem(this);
         this.HoldingHandsSystem = new HoldingHandsSystem(this);
+        this.CoupleSynergySystem = new CoupleSynergySystem(this);
         this.DateImmersionSystem = new DateImmersionSystem(this);
 
         this.DateEventController = new DateEventController(this);
@@ -98,6 +100,7 @@ public sealed class ModEntry : Mod
 
         this.CarrySystem.Reset();
         this.HoldingHandsSystem.Reset();
+        this.CoupleSynergySystem.Reset();
         this.DateImmersionSystem.Reset();
         this.ChildGrowthSystem.Reset();
         this.RequestPrompts.Clear();
@@ -162,6 +165,7 @@ public sealed class ModEntry : Mod
         this.dataDirty = false;
         this.CarrySystem.Reset();
         this.HoldingHandsSystem.Reset();
+        this.CoupleSynergySystem.Reset();
         this.DateImmersionSystem.Reset();
         this.ChildGrowthSystem.Reset();
         this.RequestPrompts.Clear();
@@ -177,6 +181,16 @@ public sealed class ModEntry : Mod
         }
 
         return SButton.F7;
+    }
+
+    internal SButton GetChildrenManagementHotkey()
+    {
+        if (Enum.TryParse(this.Config.ChildrenManagementHotkey, ignoreCase: true, out SButton parsed))
+        {
+            return parsed;
+        }
+
+        return SButton.F8;
     }
 
     internal Farmer? FindFarmerById(long playerId, bool includeOffline)

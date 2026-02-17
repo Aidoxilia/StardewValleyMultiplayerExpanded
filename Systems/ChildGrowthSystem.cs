@@ -6,6 +6,7 @@ using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
 using xTile.Dimensions;
+using SObject = StardewValley.Object;
 
 namespace PlayerRomance.Systems;
 
@@ -14,12 +15,14 @@ public sealed class ChildGrowthSystem
     private const string ChildNpcFlagKey = "PlayerRomance/ChildNpc";
     private const string ChildNpcIdKey = "PlayerRomance/ChildId";
     private const string ChildNpcStageKey = "PlayerRomance/ChildStage";
+    private static readonly Microsoft.Xna.Framework.Rectangle TalkIconSource = new(66, 4, 14, 12);
     private const int BabyMaxAgeYears = 3;
     private const int ChildMaxAgeYears = 11;
     private const int TeenMaxAgeYears = 15;
 
     private readonly ModEntry mod;
     private readonly Dictionary<string, string> runtimeNpcByChildId = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> nextWanderTickByChildId = new(StringComparer.OrdinalIgnoreCase);
 
     public ChildGrowthSystem(ModEntry mod)
     {
@@ -29,6 +32,7 @@ public sealed class ChildGrowthSystem
     public void Reset()
     {
         this.runtimeNpcByChildId.Clear();
+        this.nextWanderTickByChildId.Clear();
         if (!Context.IsWorldReady)
         {
             return;
@@ -67,6 +71,8 @@ public sealed class ChildGrowthSystem
                 }
 
                 child.IsFedToday = false;
+                child.IsCaredToday = false;
+                child.IsPlayedToday = false;
             }
             else
             {
@@ -136,6 +142,13 @@ public sealed class ChildGrowthSystem
                     continue;
                 }
 
+                if (!this.nextWanderTickByChildId.TryGetValue(child.ChildId, out int nextTick) || Game1.ticks < nextTick)
+                {
+                    continue;
+                }
+
+                this.nextWanderTickByChildId[child.ChildId] = Game1.ticks + 20 + Math.Abs(HashCode.Combine(child.ChildId, Game1.ticks)) % 50;
+
                 Vector2 currentTile = new((float)Math.Floor(npc.Position.X / 64f), (float)Math.Floor(npc.Position.Y / 64f));
                 Vector2 homeTile = this.GetSpawnTileForChild(location, child);
                 Vector2 desiredTile = currentTile;
@@ -157,7 +170,7 @@ public sealed class ChildGrowthSystem
                     };
                 }
 
-                if (!this.TryFindNearestSafeTile(location, desiredTile, maxRadius: 2, out Vector2 safeTile))
+                if (!this.TryFindNearestSafeTile(location, desiredTile, maxRadius: 3, out Vector2 safeTile))
                 {
                     continue;
                 }
@@ -179,6 +192,117 @@ public sealed class ChildGrowthSystem
                     : (move.Y >= 0f ? 2 : 0);
             }
         }
+    }
+
+    public void OnRenderedWorldLocal(RenderedWorldEventArgs e)
+    {
+        if (!Context.IsWorldReady || Game1.activeClickableMenu is not null)
+        {
+            return;
+        }
+
+        Point absolutePoint = new(Game1.getMouseX(true), Game1.getMouseY(true));
+        if (!this.TryGetHoveredChild(absolutePoint, Game1.currentCursorTile, out NPC? npc, out ChildRecord? child))
+        {
+            return;
+        }
+
+        if (!this.CanActorInteractWithChild(child!, this.mod.LocalPlayerId))
+        {
+            return;
+        }
+
+        float bob = (float)Math.Sin(Game1.ticks / 10f) * 2f;
+        Vector2 worldPos = npc!.Position + new Vector2(32f, -80f + bob);
+        Vector2 localPos = Game1.GlobalToLocal(Game1.viewport, worldPos);
+        e.SpriteBatch.Draw(Game1.mouseCursors, localPos, TalkIconSource, Color.White, 0f, Vector2.Zero, 4f, SpriteEffects.None, 1f);
+    }
+
+    public bool TryHandleLocalInteractionButton(ButtonPressedEventArgs e)
+    {
+        if (!Context.IsWorldReady || Game1.activeClickableMenu is not null)
+        {
+            return false;
+        }
+
+        Point absolutePoint = new((int)e.Cursor.AbsolutePixels.X, (int)e.Cursor.AbsolutePixels.Y);
+        if (!this.TryGetHoveredChild(absolutePoint, e.Cursor.GrabTile, out NPC? npc, out ChildRecord? child))
+        {
+            return false;
+        }
+
+        if (!this.CanActorInteractWithChild(child!, this.mod.LocalPlayerId))
+        {
+            this.mod.Notifier.NotifyWarn("Vous n'êtes pas autorisé à interagir avec cet enfant.", "[PR.UI.ChildInteraction]");
+            this.mod.Monitor.Log(
+                $"[PR.UI.ChildInteraction] Local interaction denied for player {this.mod.LocalPlayerId} on child {child!.ChildId}.",
+                LogLevel.Trace);
+            return true;
+        }
+
+        if (e.Button == SButton.MouseRight)
+        {
+            Item? held = Game1.player.ActiveObject;
+            if (!this.IsValidFoodItem(held))
+            {
+                return false;
+            }
+
+            bool ok = this.FeedChildFromLocal(child!.ChildId, held!.QualifiedItemId, out string feedMessage);
+            if (ok)
+            {
+                this.mod.Notifier.NotifyInfo(feedMessage, "[PR.System.ChildGrowth]");
+            }
+            else
+            {
+                this.mod.Notifier.NotifyWarn(feedMessage, "[PR.System.ChildGrowth]");
+            }
+
+            return true;
+        }
+
+        if (e.Button != SButton.MouseLeft)
+        {
+            return false;
+        }
+
+        this.mod.Monitor.Log($"[PR.UI.ChildInteraction] Opening interaction menu for child {child!.ChildId}.", LogLevel.Trace);
+        Game1.activeClickableMenu = new UI.ChildInteractionMenu(child.ChildId, child.ChildName, this.HandleChildInteractionActionLocal);
+        return true;
+    }
+
+    public bool IsValidFoodItem(Item? item)
+    {
+        return item is SObject obj
+               && item.Stack > 0
+               && obj.QualifiedItemId.StartsWith("(O)", StringComparison.OrdinalIgnoreCase)
+               && obj.Edibility > 0;
+    }
+
+    public bool OpenFeedInventoryMenuFromLocal(string childIdOrName, out string message)
+    {
+        if (string.IsNullOrWhiteSpace(childIdOrName))
+        {
+            message = "Child id/name is required.";
+            return false;
+        }
+
+        if (!this.TryFindChildRecordForLocal(childIdOrName.Trim(), out ChildRecord? child))
+        {
+            message = $"Child '{childIdOrName}' not found.";
+            return false;
+        }
+
+        if (!this.CanActorInteractWithChild(child!, this.mod.LocalPlayerId))
+        {
+            message = "Only a parent (or host) can interact with this child.";
+            return false;
+        }
+
+        Game1.activeClickableMenu = new UI.ChildFeedInventoryMenu(this.mod, child!.ChildId, child.ChildName, this.HandleFeedItemPickedLocal);
+        this.mod.Monitor.Log($"[PR.UI.ChildInteraction] Opened feed inventory menu for child {child.ChildId}.", LogLevel.Trace);
+        message = "Feed inventory opened.";
+        return true;
     }
 
     public void OnAssetRequested(AssetRequestedEventArgs e)
@@ -273,47 +397,60 @@ public sealed class ChildGrowthSystem
             return false;
         }
 
-        if (!this.TryFindChild(token, out ChildRecord? child))
+        if (!this.TryFindChild(token, out ChildRecord? child) || child is null)
         {
             message = $"Child '{token}' not found.";
             return false;
         }
 
-        this.EnsureV3Defaults(child!);
-        child.AgeDays = Math.Max(0, child.AgeDays + days);
-        child.AgeYears = Math.Max(0, child.AgeDays / 7);
-        child.Stage = this.GetStageForAgeYears(child.AgeYears);
-        this.TrySpawnOrRefreshRuntimeNpc(child);
+        ChildRecord foundChild = child;
+        this.EnsureV3Defaults(foundChild);
+        foundChild.AgeDays = Math.Max(0, foundChild.AgeDays + days);
+        foundChild.AgeYears = Math.Max(0, foundChild.AgeDays / 7);
+        foundChild.Stage = this.GetStageForAgeYears(foundChild.AgeYears);
+        this.TrySpawnOrRefreshRuntimeNpc(foundChild);
 
-        this.mod.MarkDataDirty($"Debug age changed for child {child.ChildId}.", flushNow: true);
+        this.mod.MarkDataDirty($"Debug age changed for child {foundChild.ChildId}.", flushNow: true);
         this.mod.NetSync.BroadcastSnapshotToAll();
-        message = $"{child.ChildName} age is now {child.AgeYears} years ({child.Stage}).";
+        message = $"{foundChild.ChildName} age is now {foundChild.AgeYears} years ({foundChild.Stage}).";
         return true;
     }
 
     public bool FeedChildFromLocal(string childIdOrName, string? requestedItemId, out string message)
     {
-        if (string.IsNullOrWhiteSpace(childIdOrName))
+        return this.SendChildInteractionCommandFromLocal(ChildCommandAction.Feed, childIdOrName, requestedItemId, out message);
+    }
+
+    public bool CareChildFromLocal(string childIdOrName, out string message)
+    {
+        return this.SendChildInteractionCommandFromLocal(ChildCommandAction.Care, childIdOrName, null, out message);
+    }
+
+    public bool PlayWithChildFromLocal(string childIdOrName, out string message)
+    {
+        return this.SendChildInteractionCommandFromLocal(ChildCommandAction.Play, childIdOrName, null, out message);
+    }
+
+    public bool InteractChildFromLocal(string childIdOrName, string actionToken, out string message)
+    {
+        if (string.IsNullOrWhiteSpace(actionToken))
         {
-            message = "Child id/name is required.";
+            message = "Action is required (care|play|feed).";
             return false;
         }
 
-        if (this.mod.IsHostPlayer)
+        switch (actionToken.Trim().ToLowerInvariant())
         {
-            return this.FeedChildHost(this.mod.LocalPlayerId, childIdOrName, requestedItemId, out message);
+            case "care":
+                return this.CareChildFromLocal(childIdOrName, out message);
+            case "play":
+                return this.PlayWithChildFromLocal(childIdOrName, out message);
+            case "feed":
+                return this.FeedChildFromLocal(childIdOrName, null, out message);
+            default:
+                message = "Action must be one of: care|play|feed.";
+                return false;
         }
-
-        ChildCommandMessage payload = new()
-        {
-            RequesterId = this.mod.LocalPlayerId,
-            Action = ChildCommandAction.Feed,
-            ChildIdOrName = childIdOrName.Trim(),
-            ItemId = requestedItemId?.Trim() ?? string.Empty
-        };
-        this.mod.NetSync.SendToPlayer(MessageType.ChildCommand, payload, Game1.MasterPlayer.UniqueMultiplayerID);
-        message = "Feed request sent to host.";
-        return true;
     }
 
     public bool SetChildAgeYearsFromLocal(string childIdOrName, int years, out string message)
@@ -413,6 +550,9 @@ public sealed class ChildGrowthSystem
 
         if (senderId != command.RequesterId)
         {
+            this.mod.Monitor.Log(
+                $"[PR.Net] Child command rejected: sender mismatch (sender={senderId}, requester={command.RequesterId}, action={command.Action}).",
+                LogLevel.Warn);
             this.mod.NetSync.SendError(senderId, "sender_mismatch", "Child command rejected (sender mismatch).");
             return;
         }
@@ -430,10 +570,23 @@ public sealed class ChildGrowthSystem
             case ChildCommandAction.SetTask:
                 success = this.SetChildTaskHost(command.RequesterId, command.ChildIdOrName, command.TaskToken, out message);
                 break;
+            case ChildCommandAction.Care:
+                success = this.CareChildHost(command.RequesterId, command.ChildIdOrName, out message);
+                break;
+            case ChildCommandAction.Play:
+                success = this.PlayChildHost(command.RequesterId, command.ChildIdOrName, out message);
+                break;
             default:
                 success = false;
                 message = "Unsupported child command.";
                 break;
+        }
+
+        if (!success)
+        {
+            this.mod.Monitor.Log(
+                $"[PR.Net] Child command rejected for player {senderId}: {command.Action} -> {message}",
+                LogLevel.Trace);
         }
 
         this.mod.NetSync.SendToPlayer(
@@ -455,20 +608,21 @@ public sealed class ChildGrowthSystem
             return false;
         }
 
-        if (!this.TryFindChild(childIdOrName, out ChildRecord? child))
+        if (!this.TryFindChild(childIdOrName, out ChildRecord? child) || child is null)
         {
             message = $"Child '{childIdOrName}' not found.";
             return false;
         }
 
-        this.EnsureV3Defaults(child!);
-        if (child.IsFedToday)
+        ChildRecord foundChild = child;
+        this.EnsureV3Defaults(foundChild);
+        if (foundChild.IsFedToday)
         {
-            message = $"{child.ChildName} is already fed today.";
+            message = $"{foundChild.ChildName} is already fed today.";
             return false;
         }
 
-        if (!this.IsParentOrHost(child, actorId))
+        if (!this.IsParentOrHost(foundChild, actorId))
         {
             message = "Only a parent (or host) can feed this child.";
             return false;
@@ -481,20 +635,105 @@ public sealed class ChildGrowthSystem
             return false;
         }
 
-        if (!TryConsumeItem(actor, requestedItemId, out string consumedName))
+        if (!TryConsumeItem(actor, requestedItemId, this.IsValidFoodItem, out string consumedName, out string failureReason))
         {
-            message = string.IsNullOrWhiteSpace(requestedItemId)
-                ? "No usable item found in inventory to feed child."
-                : $"Required item '{requestedItemId}' not found in inventory.";
+            message = failureReason;
             return false;
         }
 
-        child.IsFedToday = true;
-        child.FeedingProgress++;
-        child.LastProcessedDay = Math.Min(child.LastProcessedDay, this.mod.GetCurrentDayNumber() - 1);
-        this.mod.MarkDataDirty($"Child fed ({child.ChildId}) by {actorId}.", flushNow: true);
+        foundChild.IsFedToday = true;
+        foundChild.FeedingProgress++;
+        foundChild.LastProcessedDay = Math.Min(foundChild.LastProcessedDay, this.mod.GetCurrentDayNumber() - 1);
+        this.mod.MarkDataDirty($"Child fed ({foundChild.ChildId}) by {actorId}.", flushNow: true);
         this.mod.NetSync.BroadcastSnapshotToAll();
-        message = $"{child.ChildName} was fed using {consumedName}.";
+        this.mod.Monitor.Log($"[PR.System.ChildGrowth] Child {foundChild.ChildId} fed by {actorId} using {consumedName}.", LogLevel.Info);
+        message = $"{foundChild.ChildName} was fed using {consumedName}.";
+        return true;
+    }
+
+    public bool CareChildHost(long actorId, string childIdOrName, out string message)
+    {
+        if (!this.mod.IsHostPlayer)
+        {
+            message = "Only host can process child interactions.";
+            return false;
+        }
+
+        if (!this.TryFindChild(childIdOrName, out ChildRecord? child) || child is null)
+        {
+            message = $"Child '{childIdOrName}' not found.";
+            return false;
+        }
+
+        ChildRecord foundChild = child;
+        if (!this.CanActorInteractWithChild(foundChild, actorId))
+        {
+            message = "Only a parent (or host) can interact with this child.";
+            return false;
+        }
+
+        Farmer? actor = this.mod.FindFarmerById(actorId, includeOffline: false);
+        if (actor is null)
+        {
+            message = "Player must be online to interact with child.";
+            return false;
+        }
+
+        if (foundChild.IsCaredToday)
+        {
+            message = "Vous vous êtes déjà occupé de votre enfant aujourd'hui.";
+            return false;
+        }
+
+        foundChild.IsCaredToday = true;
+        this.mod.MarkDataDirty($"Child care interaction ({foundChild.ChildId}) by {actorId}.", flushNow: true);
+        this.mod.NetSync.BroadcastSnapshotToAll();
+
+        this.mod.Monitor.Log($"[PR.System.ChildGrowth] Care interaction accepted for child {foundChild.ChildId} by {actorId}.", LogLevel.Trace);
+        message = "Vous vous occupez de votre enfant.";
+        return true;
+    }
+
+    public bool PlayChildHost(long actorId, string childIdOrName, out string message)
+    {
+        if (!this.mod.IsHostPlayer)
+        {
+            message = "Only host can process child interactions.";
+            return false;
+        }
+
+        if (!this.TryFindChild(childIdOrName, out ChildRecord? child) || child is null)
+        {
+            message = $"Child '{childIdOrName}' not found.";
+            return false;
+        }
+
+        ChildRecord foundChild = child;
+        if (!this.CanActorInteractWithChild(foundChild, actorId))
+        {
+            message = "Only a parent (or host) can interact with this child.";
+            return false;
+        }
+
+        Farmer? actor = this.mod.FindFarmerById(actorId, includeOffline: false);
+        if (actor is null)
+        {
+            message = "Player must be online to interact with child.";
+            return false;
+        }
+
+        if (foundChild.IsPlayedToday)
+        {
+            message = "Vous avez déjà joué avec votre enfant aujourd'hui.";
+            return false;
+        }
+
+        foundChild.IsPlayedToday = true;
+        this.mod.MarkDataDirty($"Child play interaction ({foundChild.ChildId}) by {actorId}.", flushNow: true);
+        this.mod.NetSync.BroadcastSnapshotToAll();
+
+        this.mod.Monitor.Log($"[PR.System.ChildGrowth] Play interaction accepted for child {foundChild.ChildId} by {actorId}.", LogLevel.Trace);
+        message = "Vous jouez avec votre enfant.";
         return true;
     }
 
@@ -512,13 +751,13 @@ public sealed class ChildGrowthSystem
             return false;
         }
 
-        if (!this.TryFindChild(childIdOrName, out ChildRecord? child))
+        if (!this.TryFindChild(childIdOrName, out ChildRecord? child) || child is null)
         {
             message = $"Child '{childIdOrName}' not found.";
             return false;
         }
 
-        this.EnsureV3Defaults(child!);
+        this.EnsureV3Defaults(child);
         child.AgeYears = Math.Max(0, years);
         child.AgeDays = Math.Max(child.AgeDays, child.AgeYears * 7);
         child.Stage = this.GetStageForAgeYears(child.AgeYears);
@@ -538,14 +777,15 @@ public sealed class ChildGrowthSystem
             return false;
         }
 
-        if (!this.TryFindChild(childIdOrName, out ChildRecord? child))
+        if (!this.TryFindChild(childIdOrName, out ChildRecord? child) || child is null)
         {
             message = $"Child '{childIdOrName}' not found.";
             return false;
         }
 
-        this.EnsureV3Defaults(child!);
-        if (!this.IsParentOrHost(child, actorId))
+        ChildRecord foundChild = child;
+        this.EnsureV3Defaults(foundChild);
+        if (!this.IsParentOrHost(foundChild, actorId))
         {
             message = "Only a parent (or host) can assign child task.";
             return false;
@@ -563,13 +803,170 @@ public sealed class ChildGrowthSystem
             return false;
         }
 
-        child.AssignedTask = parsed;
-        child.AutoMode = parsed == ChildTaskType.Auto;
-        child.IsWorkerEnabled = parsed != ChildTaskType.Stop;
-        this.mod.MarkDataDirty($"Child task updated ({child.ChildId} -> {parsed}).", flushNow: true);
+        foundChild.AssignedTask = parsed;
+        foundChild.AutoMode = parsed == ChildTaskType.Auto;
+        foundChild.IsWorkerEnabled = parsed != ChildTaskType.Stop;
+        this.mod.MarkDataDirty($"Child task updated ({foundChild.ChildId} -> {parsed}).", flushNow: true);
         this.mod.NetSync.BroadcastSnapshotToAll();
-        message = $"{child.ChildName} task updated: {parsed} (auto={child.AutoMode}).";
+        message = $"{foundChild.ChildName} task updated: {parsed} (auto={foundChild.AutoMode}).";
         return true;
+    }
+
+    private bool SendChildInteractionCommandFromLocal(ChildCommandAction action, string childIdOrName, string? itemId, out string message)
+    {
+        if (string.IsNullOrWhiteSpace(childIdOrName))
+        {
+            message = "Child id/name is required.";
+            return false;
+        }
+
+        string childToken = childIdOrName.Trim();
+        if (this.mod.IsHostPlayer)
+        {
+            return action switch
+            {
+                ChildCommandAction.Feed => this.FeedChildHost(this.mod.LocalPlayerId, childToken, itemId, out message),
+                ChildCommandAction.Care => this.CareChildHost(this.mod.LocalPlayerId, childToken, out message),
+                ChildCommandAction.Play => this.PlayChildHost(this.mod.LocalPlayerId, childToken, out message),
+                _ => throw new InvalidOperationException($"Unsupported local child interaction action {action}.")
+            };
+        }
+
+        ChildCommandMessage payload = new()
+        {
+            RequesterId = this.mod.LocalPlayerId,
+            Action = action,
+            ChildIdOrName = childToken,
+            ItemId = itemId?.Trim() ?? string.Empty
+        };
+        this.mod.NetSync.SendToPlayer(MessageType.ChildCommand, payload, Game1.MasterPlayer.UniqueMultiplayerID);
+        message = action switch
+        {
+            ChildCommandAction.Feed => "Feed request sent to host.",
+            ChildCommandAction.Care => "Care request sent to host.",
+            ChildCommandAction.Play => "Play request sent to host.",
+            _ => "Child interaction request sent to host."
+        };
+        return true;
+    }
+
+    private void HandleChildInteractionActionLocal(string childId, UI.ChildInteractionAction action)
+    {
+        switch (action)
+        {
+            case UI.ChildInteractionAction.Care:
+                {
+                    bool ok = this.CareChildFromLocal(childId, out string msg);
+                    if (ok)
+                    {
+                        this.mod.Notifier.NotifyInfo(msg, "[PR.System.ChildGrowth]");
+                    }
+                    else
+                    {
+                        this.mod.Notifier.NotifyWarn(msg, "[PR.System.ChildGrowth]");
+                    }
+
+                    break;
+                }
+            case UI.ChildInteractionAction.Play:
+                {
+                    bool ok = this.PlayWithChildFromLocal(childId, out string msg);
+                    if (ok)
+                    {
+                        this.mod.Notifier.NotifyInfo(msg, "[PR.System.ChildGrowth]");
+                    }
+                    else
+                    {
+                        this.mod.Notifier.NotifyWarn(msg, "[PR.System.ChildGrowth]");
+                    }
+
+                    break;
+                }
+            default:
+                break;
+        }
+    }
+
+    private void HandleFeedItemPickedLocal(string childId, string? qualifiedItemId)
+    {
+        if (string.IsNullOrWhiteSpace(qualifiedItemId))
+        {
+            this.mod.Notifier.NotifyInfo("Action annulée.", "[PR.UI.ChildInteraction]");
+            return;
+        }
+
+        bool ok = this.FeedChildFromLocal(childId, qualifiedItemId, out string msg);
+        if (ok)
+        {
+            this.mod.Notifier.NotifyInfo(msg, "[PR.System.ChildGrowth]");
+        }
+        else
+        {
+            this.mod.Notifier.NotifyWarn(msg, "[PR.System.ChildGrowth]");
+        }
+    }
+
+    private bool TryFindChildRecordForLocal(string childIdOrName, out ChildRecord? child)
+    {
+        if (this.mod.IsHostPlayer)
+        {
+            return this.TryFindChild(childIdOrName, out child);
+        }
+
+        child = this.mod.ClientSnapshot.Children.FirstOrDefault(c =>
+            c.ChildId.Equals(childIdOrName, StringComparison.OrdinalIgnoreCase)
+            || c.ChildName.Equals(childIdOrName, StringComparison.OrdinalIgnoreCase));
+        return child is not null;
+    }
+
+    private bool TryGetHoveredChild(Point absolutePoint, Vector2 cursorTile, out NPC? childNpc, out ChildRecord? child)
+    {
+        childNpc = null;
+        child = null;
+        if (!Context.IsWorldReady || Game1.currentLocation is null)
+        {
+            return false;
+        }
+
+        float bestDistance = float.MaxValue;
+        foreach (NPC npc in Game1.currentLocation.characters)
+        {
+            if (!this.IsRuntimeChildNpc(npc))
+            {
+                continue;
+            }
+
+            if (!npc.modData.TryGetValue(ChildNpcIdKey, out string? childId) || string.IsNullOrWhiteSpace(childId))
+            {
+                continue;
+            }
+
+            if (!this.TryFindChildRecordForLocal(childId, out ChildRecord? candidateChild))
+            {
+                continue;
+            }
+
+            Microsoft.Xna.Framework.Rectangle box = npc.GetBoundingBox();
+            box.Inflate(10, 10);
+            bool hitBox = box.Contains(absolutePoint);
+            float tileDistance = Vector2.Distance(cursorTile, npc.Tile);
+            bool hitTile = tileDistance <= 1.35f;
+            if (!hitBox && !hitTile)
+            {
+                continue;
+            }
+
+            if (tileDistance >= bestDistance)
+            {
+                continue;
+            }
+
+            bestDistance = tileDistance;
+            childNpc = npc;
+            child = candidateChild;
+        }
+
+        return childNpc is not null && child is not null;
     }
 
     private void EnsureV3Defaults(ChildRecord child)
@@ -934,7 +1331,19 @@ public sealed class ChildGrowthSystem
         }
 
         Location tileLoc = new((int)Math.Floor(tile.X), (int)Math.Floor(tile.Y));
-        return location.isTileLocationOpen(tileLoc);
+        if (location.isTileLocationOpen(tileLoc))
+        {
+            return true;
+        }
+
+        try
+        {
+            return location.isTilePassable(tileLoc, Game1.viewport);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private bool TryFindNearestSafeTile(GameLocation location, Vector2 desiredTile, int maxRadius, out Vector2 safeTile)
@@ -1008,24 +1417,54 @@ public sealed class ChildGrowthSystem
 
     private bool IsParentOrHost(ChildRecord child, long actorId)
     {
-        return actorId == this.mod.LocalPlayerId
-            || actorId == child.ParentAId
-            || actorId == child.ParentBId;
+        return this.CanActorInteractWithChild(child, actorId);
     }
 
-    private static bool TryConsumeItem(Farmer actor, string? requestedItemId, out string consumedName)
+    private bool CanActorInteractWithChild(ChildRecord child, long actorId)
+    {
+        if (!Context.IsWorldReady)
+        {
+            return actorId == child.ParentAId || actorId == child.ParentBId;
+        }
+
+        long hostId = Game1.MasterPlayer?.UniqueMultiplayerID ?? this.mod.LocalPlayerId;
+        return actorId == hostId || actorId == child.ParentAId || actorId == child.ParentBId;
+    }
+
+    private static bool TryConsumeItem(Farmer actor, string? requestedItemId, Func<Item?, bool> isValidFoodItem, out string consumedName, out string failureReason)
     {
         consumedName = string.Empty;
+        failureReason = string.Empty;
         string requested = requestedItemId?.Trim() ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(requested))
+        {
+            for (int i = 0; i < actor.Items.Count; i++)
+            {
+                Item? candidate = actor.Items[i];
+                if (!isValidFoodItem(candidate))
+                {
+                    continue;
+                }
+
+                consumedName = candidate!.DisplayName;
+                candidate.Stack--;
+                if (candidate.Stack <= 0)
+                {
+                    actor.Items[i] = null;
+                }
+
+                return true;
+            }
+
+            failureReason = "Inventaire vide ou aucune nourriture valide à donner.";
+            return false;
+        }
+
         for (int i = 0; i < actor.Items.Count; i++)
         {
             Item? item = actor.Items[i];
             if (item is null || item.Stack <= 0)
-            {
-                continue;
-            }
-
-            if (!item.QualifiedItemId.StartsWith("(O)", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -1035,6 +1474,12 @@ public sealed class ChildGrowthSystem
                 && !string.Equals(item.ItemId, requested, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
+            }
+
+            if (!isValidFoodItem(item))
+            {
+                failureReason = $"L'objet '{item.DisplayName}' n'est pas une nourriture valide.";
+                return false;
             }
 
             consumedName = item.DisplayName;
@@ -1047,6 +1492,7 @@ public sealed class ChildGrowthSystem
             return true;
         }
 
+        failureReason = $"Item '{requested}' introuvable dans l'inventaire.";
         return false;
     }
 

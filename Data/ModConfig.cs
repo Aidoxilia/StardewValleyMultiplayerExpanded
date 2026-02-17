@@ -2,10 +2,12 @@ namespace PlayerRomance.Data;
 
 public sealed class ModConfig
 {
+    public bool EnableVanillaSocialIntegration { get; set; } = true;
     public bool EnableImmersiveDates { get; set; } = true;
     public bool EnableHeartsSystem { get; set; } = true;
     public bool EnableHoldingHands { get; set; } = true;
     public string RomanceHubHotkey { get; set; } = "F7";
+    public string ChildrenManagementHotkey { get; set; } = "F8";
     public int HeartPointsPerHeart { get; set; } = 250;
     public int MaxHearts { get; set; } = 14;
     public int ImmersiveDatePointsReward { get; set; } = 120;
@@ -17,6 +19,9 @@ public sealed class ModConfig
     public int GiftsBonusMinHearts { get; set; } = 6;
     public int DuoBuffMinHearts { get; set; } = 10;
     public int HoldingHandsBreakDistanceTiles { get; set; } = 4;
+    public float HoldingHandsSoftMaxDistanceTiles { get; set; } = 1.25f;
+    public float HandsSpringStrength { get; set; } = 0.18f;
+    public float HandsDamping { get; set; } = 0.74f;
     public int HoldingHandsOffsetPixels { get; set; } = 24;
     public bool EnableCarry { get; set; } = true;
     public int CarryEnergyRegenPerSecond { get; set; } = 1;
@@ -43,5 +48,20 @@ public sealed class ModConfig
     public int HandsMaxMovePixelsPerTick { get; set; } = 14;
     public int HandsEmergencyStopDistanceTiles { get; set; } = 8;
     public int MarriageMinDatingDays { get; set; } = 3;
+
+    public bool EnableCoupleSynergy { get; set; } = true;
+    public bool EnableRpInteractions { get; set; } = false;
+    public bool EnableRelationshipEvents { get; set; } = false;
+    public bool EnableCombatDuo { get; set; } = false;
+    public bool EnableChildEducationTraits { get; set; } = false;
+
+    public bool EnableWakeupCuddleBuff { get; set; } = true;
+    public bool EnableLoveAura { get; set; } = true;
+    public bool EnableRegeneratorKiss { get; set; } = true;
+
+    public int LoveAuraRangeTiles { get; set; } = 6;
+    public float LoveAuraStaminaMultiplier { get; set; } = 0.85f;
+    public int KissEnergyRestorePercent { get; set; } = 50;
+
     public bool EnableDebugCommands { get; set; } = true;
 }

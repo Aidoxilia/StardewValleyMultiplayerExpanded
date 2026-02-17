@@ -179,7 +179,9 @@ public enum ChildCommandAction
 {
     Feed = 0,
     SetAgeYears = 1,
-    SetTask = 2
+    SetTask = 2,
+    Care = 3,
+    Play = 4
 }
 
 public sealed class ChildCommandMessage
