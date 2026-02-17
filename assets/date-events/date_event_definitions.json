@@ -1,0 +1,26 @@
+[
+  {
+    "DateId": "beach_picnic",
+    "RequiredHearts": 4,
+    "MapName": "Date_Beach",
+    "MinStartTime": 900,
+    "MaxStartTime": 2300,
+    "NpcList": [
+      { "NpcName": "Leah", "SpotName": "Npc_Spot_1", "FacingDirection": 2 },
+      { "NpcName": "Elliott", "SpotName": "Npc_Spot_2", "FacingDirection": 2 },
+      { "NpcName": "Haley", "SpotName": "Npc_Spot_3", "FacingDirection": 1 }
+    ],
+    "VendorNpc": {
+      "NpcName": "Gus",
+      "SpotName": "Npc_Spot_Vendor",
+      "FacingDirection": 2
+    },
+    "Reward": {
+      "HeartsDelta": 15,
+      "Money": 100,
+      "ItemId": "(O)421",
+      "ItemCount": 1
+    },
+    "EnableDecorations": false
+  }
+]

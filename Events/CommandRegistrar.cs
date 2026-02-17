@@ -59,6 +59,9 @@ public sealed class CommandRegistrar
         this.mod.Helper.ConsoleCommands.Add("pr.date.immersive.retry", "Retry immersive date start handshake when session is not yet confirmed.", this.OnImmersiveDateRetry);
         this.mod.Helper.ConsoleCommands.Add("pr.date.debug.spawnstands", "Debug spawn immersive stands locally. Usage: pr.date.debug.spawnstands <town|beach|forest>", this.OnDateDebugSpawnStands);
         this.mod.Helper.ConsoleCommands.Add("pr.date.debug.cleanup", "Debug cleanup immersive date runtime objects.", this.OnDateDebugCleanup);
+        this.mod.Helper.ConsoleCommands.Add("date_start", "Host-only map date start. Usage: date_start <dateId> <playerBNameOrId>", this.OnDateMapStart);
+        this.mod.Helper.ConsoleCommands.Add("date_markers_dump", "Host-only dump Date_Beach markers.", this.OnDateMarkersDump);
+        this.mod.Helper.ConsoleCommands.Add("date_end", "Host-only end active map date.", this.OnDateMapEnd);
 
         this.mod.Helper.ConsoleCommands.Add("pr.hands.request", "Request holding hands with a player. Usage: pr.hands.request <player>", this.OnHandsRequest);
         this.mod.Helper.ConsoleCommands.Add("pr.hands.accept", "Accept pending holding hands request.", this.OnHandsAccept);
@@ -651,6 +654,54 @@ public sealed class CommandRegistrar
         }
 
         this.Finish(this.mod.DateImmersionSystem.DebugCleanup(out string msg), msg);
+    }
+
+    private void OnDateMapStart(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 2))
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run date_start.", "[PR.System.DateEvent]");
+            return;
+        }
+
+        this.Finish(this.mod.DateEventController.StartDateDebugFromLocal(args[0], args[1], out string msg), msg);
+    }
+
+    private void OnDateMarkersDump(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run date_markers_dump.", "[PR.System.DateEvent]");
+            return;
+        }
+
+        this.Finish(this.mod.DateEventController.DumpMarkersFromLocal(out string msg), msg);
+    }
+
+    private void OnDateMapEnd(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run date_end.", "[PR.System.DateEvent]");
+            return;
+        }
+
+        this.Finish(this.mod.DateEventController.EndDateFromLocal(out string msg), msg);
     }
 
     private void OnHandsRequest(string command, string[] args)

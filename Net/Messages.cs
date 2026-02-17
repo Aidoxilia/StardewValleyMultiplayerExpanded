@@ -36,6 +36,46 @@ public sealed class StartPairEventMessage
     public int TileX { get; set; } = 24;
     public int TileY { get; set; } = 62;
     public string DialogText { get; set; } = string.Empty;
+    public string DateId { get; set; } = string.Empty;
+    public bool LockInputs { get; set; }
+    public bool FreezeTime { get; set; }
+    public int LockedTime { get; set; }
+    public int PlayerATileX { get; set; } = 10;
+    public int PlayerATileY { get; set; } = 10;
+    public int PlayerBTileX { get; set; } = 12;
+    public int PlayerBTileY { get; set; } = 10;
+    public List<DateEventNpcPlacementMessage> NpcPlacements { get; set; } = new();
+}
+
+public sealed class DateEventNpcPlacementMessage
+{
+    public string SpotName { get; set; } = string.Empty;
+    public string NpcName { get; set; } = string.Empty;
+    public int TileX { get; set; }
+    public int TileY { get; set; }
+    public int FacingDirection { get; set; } = 2;
+    public bool IsVendor { get; set; }
+}
+
+public sealed class DateEventPhaseMessage
+{
+    public string SessionId { get; set; } = string.Empty;
+    public string DateId { get; set; } = string.Empty;
+    public string PhaseId { get; set; } = string.Empty;
+    public string DialogText { get; set; } = string.Empty;
+    public int EmoteId { get; set; } = -1;
+    public long TargetPlayerId { get; set; } = -1;
+}
+
+public sealed class EndDateEventMessage
+{
+    public string SessionId { get; set; } = string.Empty;
+    public string DateId { get; set; } = string.Empty;
+    public bool Success { get; set; }
+    public string Reason { get; set; } = string.Empty;
+    public int RewardMoney { get; set; }
+    public string RewardItemId { get; set; } = string.Empty;
+    public int RewardItemCount { get; set; } = 1;
 }
 
 public sealed class PregnancyOptInMessage

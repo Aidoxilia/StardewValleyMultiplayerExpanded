@@ -30,119 +30,122 @@ public sealed class HostHandlers
         switch (type)
         {
             case MessageType.RequestSnapshot:
-            {
-                SnapshotRequestMessage request = e.ReadAs<SnapshotRequestMessage>();
-                this.mod.NetSync.SendSnapshotTo(request.PlayerId);
-                break;
-            }
+                {
+                    SnapshotRequestMessage request = e.ReadAs<SnapshotRequestMessage>();
+                    this.mod.NetSync.SendSnapshotTo(request.PlayerId);
+                    break;
+                }
             case MessageType.ProposalDating:
-            {
-                RelationshipProposalMessage proposal = e.ReadAs<RelationshipProposalMessage>();
-                this.mod.DatingSystem.HandleDatingProposalHost(proposal, e.FromPlayerID);
-                break;
-            }
+                {
+                    RelationshipProposalMessage proposal = e.ReadAs<RelationshipProposalMessage>();
+                    this.mod.DatingSystem.HandleDatingProposalHost(proposal, e.FromPlayerID);
+                    break;
+                }
             case MessageType.DatingDecision:
-            {
-                RelationshipDecisionMessage decision = e.ReadAs<RelationshipDecisionMessage>();
-                this.mod.DatingSystem.HandleDatingDecisionHost(decision, e.FromPlayerID);
-                break;
-            }
+                {
+                    RelationshipDecisionMessage decision = e.ReadAs<RelationshipDecisionMessage>();
+                    this.mod.DatingSystem.HandleDatingDecisionHost(decision, e.FromPlayerID);
+                    break;
+                }
             case MessageType.ProposalMarriage:
-            {
-                RelationshipProposalMessage proposal = e.ReadAs<RelationshipProposalMessage>();
-                this.mod.MarriageSystem.HandleMarriageProposalHost(proposal, e.FromPlayerID);
-                break;
-            }
+                {
+                    RelationshipProposalMessage proposal = e.ReadAs<RelationshipProposalMessage>();
+                    this.mod.MarriageSystem.HandleMarriageProposalHost(proposal, e.FromPlayerID);
+                    break;
+                }
             case MessageType.MarriageDecision:
-            {
-                RelationshipDecisionMessage decision = e.ReadAs<RelationshipDecisionMessage>();
-                this.mod.MarriageSystem.HandleMarriageDecisionHost(decision, e.FromPlayerID);
-                break;
-            }
+                {
+                    RelationshipDecisionMessage decision = e.ReadAs<RelationshipDecisionMessage>();
+                    this.mod.MarriageSystem.HandleMarriageDecisionHost(decision, e.FromPlayerID);
+                    break;
+                }
             case MessageType.StartDateEvent:
-            {
-                StartPairEventMessage request = e.ReadAs<StartPairEventMessage>();
-                this.mod.DateEventController.HandleStartDateRequestHost(request, e.FromPlayerID);
-                break;
-            }
+                {
+                    StartPairEventMessage request = e.ReadAs<StartPairEventMessage>();
+                    this.mod.DateEventController.HandleStartDateRequestHost(request, e.FromPlayerID);
+                    break;
+                }
             case MessageType.PregnancyOptIn:
-            {
-                PregnancyOptInMessage optIn = e.ReadAs<PregnancyOptInMessage>();
-                this.mod.PregnancySystem.HandleOptInHost(optIn, e.FromPlayerID);
-                break;
-            }
+                {
+                    PregnancyOptInMessage optIn = e.ReadAs<PregnancyOptInMessage>();
+                    this.mod.PregnancySystem.HandleOptInHost(optIn, e.FromPlayerID);
+                    break;
+                }
             case MessageType.TryForBabyRequest:
-            {
-                TryForBabyMessage request = e.ReadAs<TryForBabyMessage>();
-                this.mod.PregnancySystem.HandleTryForBabyRequestHost(request, e.FromPlayerID);
-                break;
-            }
+                {
+                    TryForBabyMessage request = e.ReadAs<TryForBabyMessage>();
+                    this.mod.PregnancySystem.HandleTryForBabyRequestHost(request, e.FromPlayerID);
+                    break;
+                }
             case MessageType.TryForBabyDecision:
-            {
-                TryForBabyMessage decision = e.ReadAs<TryForBabyMessage>();
-                this.mod.PregnancySystem.HandleTryForBabyDecisionHost(decision, e.FromPlayerID);
-                break;
-            }
+                {
+                    TryForBabyMessage decision = e.ReadAs<TryForBabyMessage>();
+                    this.mod.PregnancySystem.HandleTryForBabyDecisionHost(decision, e.FromPlayerID);
+                    break;
+                }
             case MessageType.CarryRequest:
-            {
-                CarryRequestMessage request = e.ReadAs<CarryRequestMessage>();
-                this.mod.CarrySystem.HandleCarryRequestHost(request, e.FromPlayerID);
-                break;
-            }
+                {
+                    CarryRequestMessage request = e.ReadAs<CarryRequestMessage>();
+                    this.mod.CarrySystem.HandleCarryRequestHost(request, e.FromPlayerID);
+                    break;
+                }
             case MessageType.CarryDecision:
-            {
-                CarryDecisionMessage decision = e.ReadAs<CarryDecisionMessage>();
-                this.mod.CarrySystem.HandleCarryDecisionHost(decision, e.FromPlayerID);
-                break;
-            }
+                {
+                    CarryDecisionMessage decision = e.ReadAs<CarryDecisionMessage>();
+                    this.mod.CarrySystem.HandleCarryDecisionHost(decision, e.FromPlayerID);
+                    break;
+                }
             case MessageType.CarryStop:
-            {
-                CarryStopMessage stop = e.ReadAs<CarryStopMessage>();
-                this.mod.CarrySystem.HandleCarryStopHost(stop, e.FromPlayerID);
-                break;
-            }
+                {
+                    CarryStopMessage stop = e.ReadAs<CarryStopMessage>();
+                    this.mod.CarrySystem.HandleCarryStopHost(stop, e.FromPlayerID);
+                    break;
+                }
             case MessageType.HoldingHandsRequest:
-            {
-                HoldingHandsRequestMessage request = e.ReadAs<HoldingHandsRequestMessage>();
-                this.mod.HoldingHandsSystem.HandleHoldingHandsRequestHost(request, e.FromPlayerID);
-                break;
-            }
+                {
+                    HoldingHandsRequestMessage request = e.ReadAs<HoldingHandsRequestMessage>();
+                    this.mod.HoldingHandsSystem.HandleHoldingHandsRequestHost(request, e.FromPlayerID);
+                    break;
+                }
             case MessageType.HoldingHandsDecision:
-            {
-                HoldingHandsDecisionMessage decision = e.ReadAs<HoldingHandsDecisionMessage>();
-                this.mod.HoldingHandsSystem.HandleHoldingHandsDecisionHost(decision, e.FromPlayerID);
-                break;
-            }
+                {
+                    HoldingHandsDecisionMessage decision = e.ReadAs<HoldingHandsDecisionMessage>();
+                    this.mod.HoldingHandsSystem.HandleHoldingHandsDecisionHost(decision, e.FromPlayerID);
+                    break;
+                }
             case MessageType.HoldingHandsStop:
-            {
-                HoldingHandsStopMessage stop = e.ReadAs<HoldingHandsStopMessage>();
-                this.mod.HoldingHandsSystem.HandleHoldingHandsStopHost(stop, e.FromPlayerID);
-                break;
-            }
+                {
+                    HoldingHandsStopMessage stop = e.ReadAs<HoldingHandsStopMessage>();
+                    this.mod.HoldingHandsSystem.HandleHoldingHandsStopHost(stop, e.FromPlayerID);
+                    break;
+                }
             case MessageType.ImmersiveDateRequest:
-            {
-                ImmersiveDateRequestMessage request = e.ReadAs<ImmersiveDateRequestMessage>();
-                this.mod.DateImmersionSystem.HandleImmersiveDateRequestHost(request, e.FromPlayerID);
-                break;
-            }
+                {
+                    ImmersiveDateRequestMessage request = e.ReadAs<ImmersiveDateRequestMessage>();
+                    this.mod.DateImmersionSystem.HandleImmersiveDateRequestHost(request, e.FromPlayerID);
+                    break;
+                }
             case MessageType.ImmersiveDateDecision:
-            {
-                ImmersiveDateDecisionMessage decision = e.ReadAs<ImmersiveDateDecisionMessage>();
-                this.mod.DateImmersionSystem.HandleImmersiveDateDecisionHost(decision, e.FromPlayerID);
-                break;
-            }
+                {
+                    ImmersiveDateDecisionMessage decision = e.ReadAs<ImmersiveDateDecisionMessage>();
+                    this.mod.DateImmersionSystem.HandleImmersiveDateDecisionHost(decision, e.FromPlayerID);
+                    break;
+                }
             case MessageType.ImmersiveDateInteractionRequest:
-            {
-                ImmersiveDateInteractionRequestMessage request = e.ReadAs<ImmersiveDateInteractionRequestMessage>();
-                this.mod.DateImmersionSystem.HandleInteractionRequestHost(request, e.FromPlayerID);
-                break;
-            }
+                {
+                    ImmersiveDateInteractionRequestMessage request = e.ReadAs<ImmersiveDateInteractionRequestMessage>();
+                    this.mod.DateImmersionSystem.HandleInteractionRequestHost(request, e.FromPlayerID);
+                    break;
+                }
             case MessageType.ChildCommand:
-            {
-                ChildCommandMessage command = e.ReadAs<ChildCommandMessage>();
-                this.mod.ChildGrowthSystem.HandleChildCommandHost(command, e.FromPlayerID);
+                {
+                    ChildCommandMessage command = e.ReadAs<ChildCommandMessage>();
+                    this.mod.ChildGrowthSystem.HandleChildCommandHost(command, e.FromPlayerID);
+                    break;
+                }
+            case MessageType.EndDateEvent:
+            case MessageType.DateEventPhase:
                 break;
-            }
         }
     }
 

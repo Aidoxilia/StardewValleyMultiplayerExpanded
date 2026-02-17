@@ -61,6 +61,7 @@ public sealed class GameEventOrchestrator
         this.mod.ChildGrowthSystem.OnDayStartedHost();
         this.mod.FarmWorkerSystem.OnDayStartedHost();
         this.mod.CoupleSynergySystem.OnDayStartedHost();
+        this.mod.DateEventController.OnDayStartedHost();
     }
 
     private void OnDayEnding(object? sender, DayEndingEventArgs e)
@@ -84,6 +85,7 @@ public sealed class GameEventOrchestrator
 
         this.mod.RequestPrompts.TryShowNextPrompt();
         this.mod.DateImmersionSystem.OnUpdateTickedLocal();
+        this.mod.DateEventController.OnUpdateTicked();
 
         if (!this.mod.IsHostPlayer)
         {
@@ -160,6 +162,11 @@ public sealed class GameEventOrchestrator
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
     {
         if (!Context.IsWorldReady || !Context.IsPlayerFree)
+        {
+            return;
+        }
+
+        if (this.mod.DateEventController.TryHandleInputBlock(e))
         {
             return;
         }

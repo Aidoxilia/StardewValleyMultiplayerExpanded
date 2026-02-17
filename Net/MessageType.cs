@@ -32,5 +32,7 @@ public enum MessageType
     HoldingHandsStop = 27,
     Error = 28,
     ChildCommand = 29,
-    ChildCommandResult = 30
+    ChildCommandResult = 30,
+    DateEventPhase = 31,
+    EndDateEvent = 32
 }
