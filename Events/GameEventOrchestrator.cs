@@ -98,6 +98,12 @@ public sealed class GameEventOrchestrator
         this.mod.HoldingHandsSystem.OnUpdateTickedHost();
         this.mod.CarrySystem.OnUpdateTickedHost();
         this.mod.ChildGrowthSystem.OnUpdateTickedHost();
+
+        if (e.IsMultipleOf(10))
+        {
+            this.mod.DateImmersionSystem.BroadcastNpcSyncHost();
+            this.mod.ChildGrowthSystem.BroadcastNpcSyncHost();
+        }
     }
 
     private void OnOneSecondUpdateTicked(object? sender, OneSecondUpdateTickedEventArgs e)
@@ -230,5 +236,6 @@ public sealed class GameEventOrchestrator
     {
         this.mod.ChildGrowthSystem.OnAssetRequested(e);
         this.mod.DateEventController.OnAssetRequested(e);
+        this.mod.DateImmersionSystem.OnAssetRequested(e);
     }
 }

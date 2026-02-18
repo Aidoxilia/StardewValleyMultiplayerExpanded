@@ -16,86 +16,78 @@ namespace PlayerRomance.UI
         private readonly List<ChildRecord> children;
         private ClickableTextureComponent closeButton;
 
-        // Liste des lignes d'enfants
+        // List of child rows
         private readonly List<ChildRowComponent> childRows = new();
 
         private string hoverText = "";
 
-        // Constantes de design (Taille idéale)
-        private const int ROW_HEIGHT = 112;
-        private const int MAX_WIDTH = 900;
-        private const int MAX_HEIGHT = 700;
+        // Design Constants (Increased spacing)
+        private const int ROW_HEIGHT = 128; // Increased from 112
+        private const int ROW_PADDING = 16; // Padding between rows
+        private const int MAX_WIDTH = 950;  // Slightly wider
+        private const int MAX_HEIGHT = 750;
 
         public ChildrenManagementMenu(ModEntry mod)
         {
             this.mod = mod;
 
-            // On charge les enfants une seule fois
+            // Load children once
             this.children = this.GetChildrenForLocal()
                 .OrderByDescending(c => c.AgeYears)
                 .ThenBy(c => c.ChildName)
                 .ToList();
 
-            // Initialisation de la mise en page (calcule positions et tailles)
+            // Initialize layout
             this.UpdateLayout();
         }
 
-        /// <summary>
-        /// Méthode native de Stardew Valley appelée quand la fenêtre change de taille.
-        /// </summary>
         public override void gameWindowSizeChanged(Rectangle oldBounds, Rectangle newBounds)
         {
             base.gameWindowSizeChanged(oldBounds, newBounds);
             this.UpdateLayout();
         }
 
-        /// <summary>
-        /// Recalcule toutes les positions en fonction de la taille actuelle de l'écran.
-        /// </summary>
         private void UpdateLayout()
         {
-            // 1. Calculer la taille du menu en fonction de l'écran (Responsive)
-            // On prend 90% de l'écran ou la taille Max, selon le plus petit.
+            // 1. Calculate menu size based on screen
             this.width = Math.Min(MAX_WIDTH, Game1.uiViewport.Width - 64);
             this.height = Math.Min(MAX_HEIGHT, Game1.uiViewport.Height - 64);
 
-            // 2. Centrer le menu
+            // 2. Center the menu
             this.xPositionOnScreen = (Game1.uiViewport.Width - this.width) / 2;
             this.yPositionOnScreen = (Game1.uiViewport.Height - this.height) / 2;
 
-            // 3. Recréer le bouton fermer (ancré en haut à droite)
+            // 3. Recreate close button
             this.closeButton = new ClickableTextureComponent(
                 new Rectangle(this.xPositionOnScreen + this.width - 48, this.yPositionOnScreen - 8, 48, 48),
                 Game1.mouseCursors,
                 new Rectangle(337, 494, 12, 12),
                 4f);
 
-            // 4. Reconstruire les lignes d'enfants
+            // 4. Rebuild child rows
             this.childRows.Clear();
 
-            int contentTopY = this.yPositionOnScreen + 100; // Marge pour le titre
-            int availableWidth = this.width - 64; // Largeur interne (avec marges)
+            int contentTopY = this.yPositionOnScreen + 110; // Increased top margin for title
+            int availableWidth = this.width - 64;
             int rowX = this.xPositionOnScreen + 32;
 
-            // Pour éviter que les lignes sortent du bas de l'écran si l'écran est tout petit
-            int maxRowsVisible = (this.height - 120) / (ROW_HEIGHT + 8);
+            int maxRowsVisible = (this.height - 130) / (ROW_HEIGHT + ROW_PADDING);
             int rowsToDraw = Math.Min(this.children.Count, maxRowsVisible);
 
             for (int i = 0; i < rowsToDraw; i++)
             {
                 ChildRecord child = this.children[i];
-                int currentY = contentTopY + (i * (ROW_HEIGHT + 8));
+                int currentY = contentTopY + (i * (ROW_HEIGHT + ROW_PADDING));
 
-                // Bouton d'assignation (Travail) - Position relative à droite
+                // Assignment Button (Work)
                 ClickableTextureComponent? workBtn = null;
                 bool canWork = child.AgeYears >= Math.Max(16, this.mod.Config.AdultWorkMinAge);
 
                 if (canWork)
                 {
-                    // Ancré à droite de la ligne
                     int btnSize = 64;
-                    int btnX = rowX + availableWidth - btnSize - 16;
-                    int btnY = currentY + (ROW_HEIGHT - btnSize) / 2; // Centré verticalement dans la ligne
+                    int btnX = rowX + availableWidth - btnSize - 24; // More padding from right edge
+                    int btnY = currentY + (ROW_HEIGHT - btnSize) / 2;
 
                     workBtn = new ClickableTextureComponent(
                         new Rectangle(btnX, btnY, btnSize, btnSize),
@@ -105,11 +97,10 @@ namespace PlayerRomance.UI
                     )
                     {
                         myID = child.ChildId.GetHashCode(),
-                        hoverText = "Assigner une tâche"
+                        hoverText = "Assign Task"
                     };
                 }
 
-                // Création de la ligne avec ses limites dynamiques
                 Rectangle rowBounds = new Rectangle(rowX, currentY, availableWidth, ROW_HEIGHT);
                 this.childRows.Add(new ChildRowComponent(child, workBtn, rowBounds));
             }
@@ -153,24 +144,21 @@ namespace PlayerRomance.UI
                     }
                 }
 
-                // --- Logique responsive pour le survol des icones ---
-                // On utilise les mêmes ratios que dans DrawChildRow pour trouver la position
+                // Hover logic for icons
+                int iconsStartX = row.Bounds.X + (int)(row.Bounds.Width * 0.45f); // Adjusted start position
+                int iconsY = row.Bounds.Y + 32; // Adjusted Y
 
-                // Zone Icons (apx 40% de la largeur)
-                int iconsStartX = row.Bounds.X + (int)(row.Bounds.Width * 0.40f);
-                int iconsY = row.Bounds.Y + 24;
-
-                // Icone Nourriture
+                // Food Icon
                 if (new Rectangle(iconsStartX, iconsY, 32, 32).Contains(x, y))
-                    this.hoverText = row.Data.IsFedToday ? "Bien nourri" : "A faim !";
+                    this.hoverText = row.Data.IsFedToday ? "Well Fed" : "Hungry!";
 
-                // Icone Soin
-                if (new Rectangle(iconsStartX + 48, iconsY, 32, 32).Contains(x, y))
-                    this.hoverText = row.Data.IsCaredToday ? "S'est senti aimé aujourd'hui" : "A besoin d'attention";
+                // Care Icon
+                if (new Rectangle(iconsStartX + 64, iconsY, 32, 32).Contains(x, y)) // Increased spacing between icons (48 -> 64)
+                    this.hoverText = row.Data.IsCaredToday ? "Felt loved today" : "Needs attention";
 
-                // Icone Jeu
-                if (new Rectangle(iconsStartX + 96, iconsY, 32, 32).Contains(x, y))
-                    this.hoverText = row.Data.IsPlayedToday ? "S'est amusé aujourd'hui" : "S'ennuie";
+                // Play Icon
+                if (new Rectangle(iconsStartX + 128, iconsY, 32, 32).Contains(x, y)) // Increased spacing
+                    this.hoverText = row.Data.IsPlayedToday ? "Had fun today" : "Bored";
             }
         }
 
@@ -178,19 +166,18 @@ namespace PlayerRomance.UI
         {
             b.Draw(Game1.fadeToBlackRect, Game1.graphics.GraphicsDevice.Viewport.Bounds, Color.Black * 0.6f);
 
-            // Fond
+            // Background
             Game1.drawDialogueBox(this.xPositionOnScreen, this.yPositionOnScreen, this.width, this.height, false, true);
 
-            // Titre centré
-            string title = "Gestion des Enfants";
-            SpriteText.drawStringHorizontallyCenteredAt(b, title, this.xPositionOnScreen + this.width / 2, this.yPositionOnScreen + 30);
+            // Title
+            string title = "Children Management";
+            SpriteText.drawStringHorizontallyCenteredAt(b, title, this.xPositionOnScreen + this.width / 2, this.yPositionOnScreen + 35);
 
-            // Entêtes de colonnes dynamiques
-            int colY = this.yPositionOnScreen + 80;
-            // On place les textes selon des pourcentages de la largeur
-            b.DrawString(Game1.smallFont, "Identité", new Vector2(this.xPositionOnScreen + 64, colY), Game1.textColor);
-            b.DrawString(Game1.smallFont, "Besoins & Education", new Vector2(this.xPositionOnScreen + (this.width * 0.45f), colY), Game1.textColor);
-            b.DrawString(Game1.smallFont, "Action", new Vector2(this.xPositionOnScreen + (this.width - 140), colY), Game1.textColor);
+            // Column Headers
+            int colY = this.yPositionOnScreen + 85;
+            b.DrawString(Game1.smallFont, "Identity", new Vector2(this.xPositionOnScreen + 64, colY), Game1.textColor);
+            b.DrawString(Game1.smallFont, "Needs & Education", new Vector2(this.xPositionOnScreen + (this.width * 0.45f), colY), Game1.textColor);
+            b.DrawString(Game1.smallFont, "Action", new Vector2(this.xPositionOnScreen + (this.width - 160), colY), Game1.textColor);
 
             foreach (var row in this.childRows)
             {
@@ -199,7 +186,7 @@ namespace PlayerRomance.UI
 
             if (this.children.Count == 0)
             {
-                string emptyMsg = "Aucun enfant à gérer pour le moment.";
+                string emptyMsg = "No children to manage yet.";
                 Vector2 size = Game1.smallFont.MeasureString(emptyMsg);
                 b.DrawString(Game1.smallFont, emptyMsg,
                     new Vector2(this.xPositionOnScreen + (this.width - size.X) / 2, this.yPositionOnScreen + 200),
@@ -218,13 +205,13 @@ namespace PlayerRomance.UI
 
         private void DrawChildRow(SpriteBatch b, ChildRowComponent row)
         {
-            // Fond de la ligne
+            // Row Background
             IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 396, 15, 15),
                 row.Bounds.X, row.Bounds.Y, row.Bounds.Width, row.Bounds.Height, Color.White, 4f, false);
 
-            // 1. Portrait (Gauche)
+            // 1. Portrait (Left)
             NPC npcChild = Game1.getCharacterFromName(row.Data.ChildName);
-            Vector2 portraitPos = new Vector2(row.Bounds.X + 24, row.Bounds.Y + 24);
+            Vector2 portraitPos = new Vector2(row.Bounds.X + 28, row.Bounds.Y + 28); // Adjusted padding
 
             if (npcChild != null)
             {
@@ -238,24 +225,25 @@ namespace PlayerRomance.UI
                 b.Draw(Game1.mouseCursors, portraitPos, new Rectangle(896, 336, 16, 16), Color.White, 0f, Vector2.Zero, 4f, SpriteEffects.None, 0.89f);
             }
 
-            // 2. Info Texte (Gauche + décalage)
-            int textStartX = row.Bounds.X + 96;
-            b.DrawString(Game1.dialogueFont, row.Data.ChildName, new Vector2(textStartX, row.Bounds.Y + 20), Game1.textColor);
-            string ageString = $"{row.Data.AgeYears} an(s) (Stade: {row.Data.Stage})";
-            b.DrawString(Game1.smallFont, ageString, new Vector2(textStartX, row.Bounds.Y + 60), Game1.textShadowColor);
+            // 2. Info Text (Left + Offset)
+            int textStartX = row.Bounds.X + 110; // Increased offset
+            b.DrawString(Game1.dialogueFont, row.Data.ChildName, new Vector2(textStartX, row.Bounds.Y + 24), Game1.textColor);
+            string ageString = $"{row.Data.AgeYears} year(s) (Stage: {row.Data.Stage})";
+            b.DrawString(Game1.smallFont, ageString, new Vector2(textStartX, row.Bounds.Y + 70), Game1.textShadowColor);
 
-            // 3. Icones de statut (Milieu - Position relative 40%)
-            int statusStartX = row.Bounds.X + (int)(row.Bounds.Width * 0.40f);
-            int iconY = row.Bounds.Y + 24;
+            // 3. Status Icons (Middle - Relative 45%)
+            int statusStartX = row.Bounds.X + (int)(row.Bounds.Width * 0.45f);
+            int iconY = row.Bounds.Y + 32;
 
+            int iconSpacing = 64; // Increased spacing
             DrawStatusIcon(b, 1, row.Data.IsFedToday, statusStartX, iconY);
-            DrawStatusIcon(b, 2, row.Data.IsCaredToday, statusStartX + 48, iconY);
-            DrawStatusIcon(b, 3, row.Data.IsPlayedToday, statusStartX + 96, iconY);
+            DrawStatusIcon(b, 2, row.Data.IsCaredToday, statusStartX + iconSpacing, iconY);
+            DrawStatusIcon(b, 3, row.Data.IsPlayedToday, statusStartX + (iconSpacing * 2), iconY);
 
-            // 4. Barre de progression (Sous les icones)
-            int barWidth = (int)(row.Bounds.Width * 0.25f); // La barre prend 25% de la ligne
+            // 4. Progress Bar (Below Icons)
+            int barWidth = (int)(row.Bounds.Width * 0.30f); // Slightly wider bar
             int barX = statusStartX;
-            int barY = row.Bounds.Y + 70;
+            int barY = row.Bounds.Y + 85; // Lowered Y position
             int barHeight = 24;
 
             IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(403, 383, 6, 6), barX, barY, barWidth, barHeight, Color.White, 4f, false);
@@ -266,19 +254,18 @@ namespace PlayerRomance.UI
                 Color barColor = progress > 0.8f ? Color.LimeGreen : (progress > 0.4f ? Color.Orange : Color.Red);
                 b.Draw(Game1.staminaRect, new Rectangle(barX + 4, barY + 4, (int)((barWidth - 8) * progress), barHeight - 8), barColor);
             }
-            Utility.drawTextWithShadow(b, "Education", Game1.tinyFont, new Vector2(barX + barWidth / 2 - 20, barY + 4), Game1.textColor);
+            Utility.drawTextWithShadow(b, "Education", Game1.tinyFont, new Vector2(barX + barWidth / 2 - 25, barY + 4), Game1.textColor);
 
-            // 5. Bouton Action (Déjà positionné dans UpdateLayout, on le dessine juste)
+            // 5. Action Button
             if (row.WorkButton != null)
             {
                 row.WorkButton.draw(b);
             }
             else
             {
-                // Texte aligné à droite si pas de bouton
-                Vector2 textSize = Game1.tinyFont.MeasureString("Trop jeune");
-                b.DrawString(Game1.tinyFont, "Trop jeune",
-                    new Vector2(row.Bounds.Right - textSize.X - 32, row.Bounds.Center.Y - (textSize.Y / 2)),
+                Vector2 textSize = Game1.tinyFont.MeasureString("Too young");
+                b.DrawString(Game1.tinyFont, "Too young",
+                    new Vector2(row.Bounds.Right - textSize.X - 40, row.Bounds.Center.Y - (textSize.Y / 2)),
                     Color.Gray);
             }
         }

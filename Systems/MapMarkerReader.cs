@@ -168,8 +168,13 @@ public sealed class MapMarkerReader
 
             float x = ParseFloat((string?)obj.Attribute("x"), 0f);
             float y = ParseFloat((string?)obj.Attribute("y"), 0f);
+            float objectHeight = ParseFloat((string?)obj.Attribute("height"), tileSize);
+
+            // Tiled object coordinates are pixel-based and y is anchored at the object bottom for tile objects.
+            // Convert to gameplay tile coordinates per Stardew map conventions.
+            // Ref: https://stardewvalleywiki.com/Modding:Maps#Tile_coordinates
             int tileX = (int)Math.Floor(x / Math.Max(1f, tileSize));
-            int tileY = (int)Math.Floor(y / Math.Max(1f, tileSize));
+            int tileY = (int)Math.Floor((y - Math.Max(1f, objectHeight)) / Math.Max(1f, tileSize));
 
             markers[name] = new MarkerInfo
             {

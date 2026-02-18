@@ -16,13 +16,17 @@ public sealed class CommandRegistrar
 
     public void Register()
     {
+        this.mod.Helper.ConsoleCommands.Add("romance", "Developer command root. Usage: romance help dev", this.OnRomanceCommand);
+        this.mod.Helper.ConsoleCommands.Add("romance_help_dev", "Alias: list all debug/dev commands.", this.OnRomanceHelpDev);
+
         this.mod.Helper.ConsoleCommands.Add("pr.propose", "Send dating proposal. Usage: pr.propose <playerNameOrId>", this.OnProposeDating);
         this.mod.Helper.ConsoleCommands.Add("pr.accept", "Accept pending request (dating/marriage/pregnancy/carry/hands).", this.OnAccept);
         this.mod.Helper.ConsoleCommands.Add("pr.reject", "Reject pending request (dating/marriage/pregnancy/carry/hands).", this.OnReject);
         this.mod.Helper.ConsoleCommands.Add("pr.status", "Show relationship status. Usage: pr.status [playerNameOrId]", this.OnStatus);
         this.mod.Helper.ConsoleCommands.Add("pr.menu", "Open Player Romance menu.", (_, _) => Game1.activeClickableMenu = new UI.RomanceMenu(this.mod));
 
-        this.mod.Helper.ConsoleCommands.Add("pr.date.start", "Start Town date (immersive baseline). Usage: pr.date.start <playerNameOrId>", this.OnDateStart);
+        this.mod.Helper.ConsoleCommands.Add("pr.date.start", "Force date start. Usage: pr.date.start <playerNameOrId> OR pr.date.start <dateId> [playerNameOrId]", this.OnDateStart);
+        this.mod.Helper.ConsoleCommands.Add("pr.date.end", "Force end active date runtime (map + immersive).", this.OnDateEnd);
         this.mod.Helper.ConsoleCommands.Add("pr.marry.propose", "Send marriage proposal. Usage: pr.marry.propose <playerNameOrId>", this.OnProposeMarriage);
         this.mod.Helper.ConsoleCommands.Add("pr.marry.accept", "Accept pending marriage request.", this.OnMarriageAccept);
         this.mod.Helper.ConsoleCommands.Add("pr.marry.reject", "Reject pending marriage request.", this.OnMarriageReject);
@@ -41,9 +45,15 @@ public sealed class CommandRegistrar
         this.mod.Helper.ConsoleCommands.Add("pr.child.feed.menu", "Open feed inventory menu for child. Usage: pr.child.feed.menu <childId>", this.OnChildFeedMenu);
         this.mod.Helper.ConsoleCommands.Add("pr.child.interact", "Run child interaction action. Usage: pr.child.interact <childId> <care|play|feed>", this.OnChildInteract);
         this.mod.Helper.ConsoleCommands.Add("pr.child.status", "Show child status. Usage: pr.child.status [childId]", this.OnChildStatus);
-        this.mod.Helper.ConsoleCommands.Add("pr.child.age.set", "Debug set child age in years (host). Usage: pr.child.age.set <childId> <years>", this.OnChildAgeSet);
+        this.mod.Helper.ConsoleCommands.Add("pr.child.age.set", "Debug set child age in years (host). Usage: pr.child.age.set <childIdOrName> <years> OR pr.child.age.set <years> (if single child)", this.OnChildAgeSet);
         this.mod.Helper.ConsoleCommands.Add("pr.child.task", "Assign child task. Usage: pr.child.task <childId> <auto|water|feed|collect|harvest|ship|fish|stop>", this.OnChildTask);
+        this.mod.Helper.ConsoleCommands.Add("pr.child.work.force", "Debug force child work run immediately. Usage: pr.child.work.force <childIdOrName>", this.OnChildWorkForce);
+        this.mod.Helper.ConsoleCommands.Add("pr.child.job.set", "Debug force child legacy job/specialization. Usage: pr.child.job.set <childIdOrName> <none|forager|crabpot|rancher|artisan|geologist>", this.OnChildJobSet);
+        this.mod.Helper.ConsoleCommands.Add("pr.child.dump", "Debug dump complete child state. Usage: pr.child.dump <childIdOrName>", this.OnChildDump);
         this.mod.Helper.ConsoleCommands.Add("pr.child.age", "Debug child aging (host). Usage: pr.child.age <childIdOrName> <days>", this.OnAgeChild);
+        this.mod.Helper.ConsoleCommands.Add("pr.child.grow.force", "Force child transition to adult stage with diagnostics (host). Usage: pr.child.grow.force <childIdOrName> [years>=16]", this.OnChildGrowForce);
+        this.mod.Helper.ConsoleCommands.Add("pr.child.work.where", "Show where a child is currently assigned/working (host). Usage: pr.child.work.where <childIdOrName>", this.OnChildWorkWhere);
+        this.mod.Helper.ConsoleCommands.Add("pr.child.work.force.now", "Alias of pr.child.work.force to run immediate child work pass.", this.OnChildWorkForce);
         this.mod.Helper.ConsoleCommands.Add("pr.carry.request", "Request to carry another player. Usage: pr.carry.request <player>", this.OnCarryRequest);
         this.mod.Helper.ConsoleCommands.Add("pr.carry.accept", "Accept pending carry request.", this.OnCarryAccept);
         this.mod.Helper.ConsoleCommands.Add("pr.carry.reject", "Reject pending carry request.", this.OnCarryReject);
@@ -59,12 +69,18 @@ public sealed class CommandRegistrar
         this.mod.Helper.ConsoleCommands.Add("pr.date.immersive.retry", "Retry immersive date start handshake when session is not yet confirmed.", this.OnImmersiveDateRetry);
         this.mod.Helper.ConsoleCommands.Add("pr.date.debug.spawnstands", "Debug spawn immersive stands locally. Usage: pr.date.debug.spawnstands <town|beach|forest>", this.OnDateDebugSpawnStands);
         this.mod.Helper.ConsoleCommands.Add("pr.date.debug.cleanup", "Debug cleanup immersive date runtime objects.", this.OnDateDebugCleanup);
+        this.mod.Helper.ConsoleCommands.Add("pr.date.reset_state", "Debug force reset all date/immersive states and lockouts.", this.OnDateResetState);
         this.mod.Helper.ConsoleCommands.Add("date_start", "Host-only map date start. Usage: date_start <dateId> <playerBNameOrId>", this.OnDateMapStart);
         this.mod.Helper.ConsoleCommands.Add("date_markers_dump", "Host-only dump Date_Beach markers.", this.OnDateMarkersDump);
         this.mod.Helper.ConsoleCommands.Add("date_end", "Host-only end active map date.", this.OnDateMapEnd);
         this.mod.Helper.ConsoleCommands.Add("date_asset_test", "Host-only: load Maps/Date_Beach and log diagnostics.", this.OnDateAssetTest);
         this.mod.Helper.ConsoleCommands.Add("date_warp_test", "Host-only: warp to Date_Beach at (10,10).", this.OnDateWarpTest);
         this.mod.Helper.ConsoleCommands.Add("date_export_hint", "Show patch export guidance for Date_Beach.", this.OnDateExportHint);
+        this.mod.Helper.ConsoleCommands.Add("pr.date.asset_test", "Alias: host-only map asset load test for Date_Beach.", this.OnDateAssetTest);
+        this.mod.Helper.ConsoleCommands.Add("pr.date.warp_test", "Alias: host-only warp test to Date_Beach.", this.OnDateWarpTest);
+        this.mod.Helper.ConsoleCommands.Add("pr.date.markers_dump", "Alias: host-only dump Date_Beach markers.", this.OnDateMarkersDump);
+        this.mod.Helper.ConsoleCommands.Add("pr.vendor.shop.open", "Vendor shop command. Usage: pr.vendor.shop.open <vanilla|ice|roses|clothing> [itemId] [offer]", this.OnVendorShopOpen);
+        this.mod.Helper.ConsoleCommands.Add("pr.sim.morning", "Debug simulate morning pass (day-start + 06:10 host tick).", this.OnSimMorning);
 
         this.mod.Helper.ConsoleCommands.Add("pr.hands.request", "Request holding hands with a player. Usage: pr.hands.request <player>", this.OnHandsRequest);
         this.mod.Helper.ConsoleCommands.Add("pr.hands.accept", "Accept pending holding hands request.", this.OnHandsAccept);
@@ -217,7 +233,26 @@ public sealed class CommandRegistrar
             return;
         }
 
-        this.Finish(this.mod.DateEventController.StartDateFromLocal(args[0], out string msg), msg);
+        string firstArg = args[0];
+        if (this.mod.IsHostPlayer
+            && firstArg.StartsWith("date_", StringComparison.OrdinalIgnoreCase))
+        {
+            string partnerToken;
+            if (args.Length >= 2)
+            {
+                partnerToken = args[1];
+            }
+            else if (!this.TryResolveDefaultDatePartnerToken(out partnerToken))
+            {
+                this.mod.Notifier.NotifyWarn("No online partner found. Usage: pr.date.start <dateId> <player>", "[PR.System.DateEvent]");
+                return;
+            }
+
+            this.Finish(this.mod.DateEventController.StartDateDebugFromLocal(firstArg, partnerToken, out string mapMsg), mapMsg);
+            return;
+        }
+
+        this.Finish(this.mod.DateImmersionSystem.ForceStartImmersiveDateDebugFromLocal(firstArg, ImmersiveDateLocation.Town, out string msg), msg);
     }
 
     private void OnProposeMarriage(string command, string[] args)
@@ -425,18 +460,122 @@ public sealed class CommandRegistrar
 
     private void OnChildAgeSet(string command, string[] args)
     {
+        if (!this.RequireWorldReady() || args.Length == 0)
+        {
+            return;
+        }
+
+        string childToken;
+        int years;
+
+        if (args.Length == 1)
+        {
+            if (!int.TryParse(args[0], out years))
+            {
+                this.mod.Notifier.NotifyWarn("Expected integer age. Usage: pr.child.age.set <childIdOrName> <years> OR <years> (single child).", "[PR.System.ChildGrowth]");
+                return;
+            }
+
+            List<ChildRecord> pool = this.mod.IsHostPlayer
+                ? this.mod.HostSaveData.Children.Values.ToList()
+                : this.mod.ClientSnapshot.Children.ToList();
+            if (pool.Count == 1)
+            {
+                childToken = pool[0].ChildId;
+                this.mod.Monitor.Log($"[PR.System.ChildGrowth] age.set fallback used single-child mode for '{pool[0].ChildName}' ({pool[0].ChildId}).", LogLevel.Info);
+            }
+            else if (pool.Count == 0)
+            {
+                this.mod.Notifier.NotifyWarn("No child found for single-argument fallback.", "[PR.System.ChildGrowth]");
+                return;
+            }
+            else
+            {
+                this.mod.Notifier.NotifyWarn($"Ambiguous child selection ({pool.Count} children). Provide child id/name explicitly.", "[PR.System.ChildGrowth]");
+                this.mod.Monitor.Log("[PR.System.ChildGrowth] age.set ambiguity: multiple children present for single-arg call.", LogLevel.Warn);
+                return;
+            }
+        }
+        else
+        {
+            string last = args[^1];
+            if (!int.TryParse(last, out years))
+            {
+                this.mod.Notifier.NotifyWarn($"Expected integer age, got '{last}'.", "[PR.System.ChildGrowth]");
+                return;
+            }
+
+            childToken = string.Join(' ', args.Take(args.Length - 1)).Trim();
+            if (string.IsNullOrWhiteSpace(childToken))
+            {
+                this.mod.Notifier.NotifyWarn("Missing child id/name before age integer.", "[PR.System.ChildGrowth]");
+                return;
+            }
+        }
+
+        this.Finish(this.mod.ChildGrowthSystem.SetChildAgeYearsFromLocal(childToken, years, out string msg), msg);
+    }
+
+    private void OnChildWorkForce(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run pr.child.work.force.", "[PR.System.Worker]");
+            return;
+        }
+
+        bool okWorker = this.mod.FarmWorkerSystem.RunWorkerForChildDebug(args[0], out string workerMsg);
+        bool okLegacy = this.mod.LegacyChildrenSystem.ForceRunChildDailyDebug(args[0], out string legacyMsg);
+        this.Finish(okWorker && okLegacy, $"{workerMsg} | {legacyMsg}");
+    }
+
+    private void OnChildJobSet(string command, string[] args)
+    {
         if (!this.RequireWorldReady() || !this.RequireArg(args, 2))
         {
             return;
         }
 
-        if (!int.TryParse(args[1], out int years))
+        if (!this.mod.IsHostPlayer)
         {
-            this.mod.Notifier.NotifyWarn("Years must be an integer.", "[PR.System.ChildGrowth]");
+            this.mod.Notifier.NotifyWarn("Only host can run pr.child.job.set.", "[PR.System.Legacy]");
             return;
         }
 
-        this.Finish(this.mod.ChildGrowthSystem.SetChildAgeYearsFromLocal(args[0], years, out string msg), msg);
+        this.Finish(this.mod.LegacyChildrenSystem.SetChildJobDebug(args[0], args[1], out string msg), msg);
+    }
+
+    private void OnChildDump(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        {
+            return;
+        }
+
+        List<ChildRecord> pool = this.mod.IsHostPlayer
+            ? this.mod.HostSaveData.Children.Values.ToList()
+            : this.mod.ClientSnapshot.Children.ToList();
+        ChildRecord? child = pool.FirstOrDefault(c =>
+            c.ChildId.Equals(args[0], StringComparison.OrdinalIgnoreCase)
+            || c.ChildName.Equals(args[0], StringComparison.OrdinalIgnoreCase));
+        if (child is null)
+        {
+            this.mod.Notifier.NotifyWarn($"Child '{args[0]}' not found.", "[PR.System.ChildGrowth]");
+            return;
+        }
+
+        string dump =
+            $"child={child.ChildName} id={child.ChildId} age={child.AgeYears}y/{child.AgeDays}d stage={child.Stage} " +
+            $"fed={child.IsFedToday} care={child.IsCaredToday} play={child.IsPlayedToday} feedProg={child.FeedingProgress} " +
+            $"task={child.AssignedTask} auto={child.AutoMode} worker={child.IsWorkerEnabled} lastWorkDay={child.LastWorkedDay} " +
+            $"legacyAssign={child.LegacyAssignment} legacySpec={child.LegacySpecialization} edu={child.EducationScore} routine={child.RoutineZone}";
+        this.mod.Monitor.Log($"[PR.System.ChildGrowth] {dump}", LogLevel.Info);
+        this.mod.Notifier.NotifyInfo($"Child dump logged for {child.ChildName}.", "[PR.System.ChildGrowth]");
     }
 
     private void OnChildTask(string command, string[] args)
@@ -463,6 +602,33 @@ public sealed class CommandRegistrar
         }
 
         this.Finish(this.mod.ChildGrowthSystem.DebugAgeChild(args[0], days, out string msg), msg);
+    }
+
+    private void OnChildGrowForce(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        {
+            return;
+        }
+
+        int years = 16;
+        if (args.Length >= 2 && (!int.TryParse(args[1], out years) || years < 16))
+        {
+            this.mod.Notifier.NotifyWarn("Years must be an integer >= 16.", "[PR.System.ChildGrowth]");
+            return;
+        }
+
+        this.Finish(this.mod.ChildGrowthSystem.ForceGrowToAdultFromLocal(args[0], years, out string msg), msg);
+    }
+
+    private void OnChildWorkWhere(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        {
+            return;
+        }
+
+        this.Finish(this.mod.FarmWorkerSystem.GetChildWorkWhereDebug(args[0], out string msg), msg);
     }
 
     private void OnCarryRequest(string command, string[] args)
@@ -610,7 +776,7 @@ public sealed class CommandRegistrar
             return;
         }
 
-        this.Finish(this.mod.DateImmersionSystem.StartImmersiveDateFromLocal(args[0], location, out string msg), msg);
+        this.Finish(this.mod.DateImmersionSystem.ForceStartImmersiveDateDebugFromLocal(args[0], location, out string msg), msg);
     }
 
     private void OnImmersiveDateEnd(string command, string[] args)
@@ -621,6 +787,19 @@ public sealed class CommandRegistrar
         }
 
         this.Finish(this.mod.DateImmersionSystem.EndImmersiveDateFromLocal(out string msg), msg);
+    }
+
+    private void OnDateEnd(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        bool immersiveOk = this.mod.DateImmersionSystem.EndImmersiveDateFromLocal(out string immersiveMsg);
+        bool mapOk = this.mod.DateEventController.EndDateFromLocal(out string mapMsg);
+        bool ok = immersiveOk || mapOk;
+        this.Finish(ok, $"{immersiveMsg} | {mapMsg}");
     }
 
     private void OnImmersiveDateRetry(string command, string[] args)
@@ -745,6 +924,159 @@ public sealed class CommandRegistrar
         this.mod.Notifier.NotifyInfo("Date export hint logged.", "[PR.System.DateEvent]");
     }
 
+    private void OnDateResetState(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run pr.date.reset_state.", "[PR.System.DateEvent]");
+            return;
+        }
+
+        bool okImmersive = this.mod.DateImmersionSystem.ForceResetDateStateHost(clearDailyHistory: true, out string immersiveMsg);
+        bool okMap = this.mod.DateEventController.ForceResetDateRuntimeFromLocal(out string mapMsg);
+        bool ok = okImmersive && okMap;
+        string msg = $"{immersiveMsg} | {mapMsg}";
+        this.Finish(ok, msg);
+    }
+
+    private void OnVendorShopOpen(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        {
+            return;
+        }
+
+        if (args[0].Equals("vanilla", StringComparison.OrdinalIgnoreCase)
+            || args[0].Equals("open", StringComparison.OrdinalIgnoreCase))
+        {
+            this.Finish(this.mod.DateImmersionSystem.OpenVendorShopFromLocal(out string shopMsg), shopMsg);
+            return;
+        }
+
+        if (!TryParseStandType(args[0], out DateStandType standType))
+        {
+            this.mod.Notifier.NotifyWarn("Stand must be ice, roses, clothing, or 'vanilla'.", "[PR.System.DateImmersion]");
+            return;
+        }
+
+        IReadOnlyList<StandOfferDefinition> offers = this.mod.DateImmersionSystem.GetStandOffers(standType);
+        if (offers.Count == 0)
+        {
+            this.mod.Notifier.NotifyWarn("No offers found for this stand.", "[PR.System.DateImmersion]");
+            return;
+        }
+
+        if (args.Length == 1)
+        {
+            this.mod.Notifier.NotifyInfo($"Offers at {standType} stand:", "[PR.System.DateImmersion]");
+            foreach (StandOfferDefinition offer in offers)
+            {
+                this.mod.Monitor.Log($"[PR.System.DateImmersion] - {offer.ItemId} | {offer.DisplayName} | {offer.Price}g | hearts +{offer.HeartDeltaOnOffer}", LogLevel.Info);
+            }
+
+            this.mod.Notifier.NotifyInfo("Use: pr.vendor.shop.open <stand> <itemId> [offer]", "[PR.System.DateImmersion]");
+            return;
+        }
+
+        string itemId = args[1];
+        bool offerToPartner = args.Length >= 3 && args[2].Equals("offer", StringComparison.OrdinalIgnoreCase);
+        this.Finish(this.mod.DateImmersionSystem.RequestStandPurchaseFromLocal(standType, itemId, offerToPartner, out string msg), msg);
+    }
+
+    private void OnSimMorning(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            this.mod.Notifier.NotifyWarn("Only host can run pr.sim.morning.", "[PR.Core]");
+            return;
+        }
+
+        int previousTime = Game1.timeOfDay;
+        Game1.timeOfDay = 610;
+        this.mod.DateImmersionSystem.OnDayStartedHost();
+        this.mod.PregnancySystem.OnDayStartedHost();
+        this.mod.ChildGrowthSystem.OnDayStartedHost();
+        this.mod.FarmWorkerSystem.OnDayStartedHost();
+        this.mod.LegacyChildrenSystem.OnDayStartedHost();
+        this.mod.CoupleSynergySystem.OnDayStartedHost();
+        this.mod.DateEventController.OnDayStartedHost();
+        this.mod.DateImmersionSystem.OnOneSecondUpdateTickedHost();
+        this.mod.CoupleSynergySystem.OnOneSecondUpdateTickedHost();
+
+        this.mod.Monitor.Log($"[PR.Core] Debug morning simulation executed (time {previousTime} -> {Game1.timeOfDay}).", LogLevel.Info);
+        this.mod.Notifier.NotifyInfo("Debug morning simulation completed.", "[PR.Core]");
+    }
+
+    private void OnRomanceCommand(string command, string[] args)
+    {
+        if (args.Length >= 2
+            && args[0].Equals("help", StringComparison.OrdinalIgnoreCase)
+            && args[1].Equals("dev", StringComparison.OrdinalIgnoreCase))
+        {
+            this.OnRomanceHelpDev(command, args);
+            return;
+        }
+
+        this.mod.Notifier.NotifyWarn("Usage: romance help dev", "[PR.Core]");
+    }
+
+    private void OnRomanceHelpDev(string command, string[] args)
+    {
+        string[] lines =
+        {
+            "DEV COMMANDS:",
+            "  romance help dev",
+            "  romance_help_dev",
+            "  pr.date.immersive.start <player|DummyPartner> <town|beach|forest>",
+            "  pr.date.immersive.end",
+            "  pr.date.start <player>  (force immersive town)",
+            "  pr.date.start <dateId> [player]  (force map date)",
+            "  pr.date.end",
+            "  pr.date.immersive.retry",
+            "  pr.date.reset_state",
+            "  pr.date.asset_test / date_asset_test",
+            "  pr.date.warp_test / date_warp_test",
+            "  pr.date.markers_dump / date_markers_dump",
+            "  date_start <dateId> <player>",
+            "  date_end",
+            "  pr.vendor.shop.open <vanilla|ice|roses|clothing> [itemId] [offer]",
+            "  pr.child.age.set <child> <years>",
+            "  pr.child.age.set <years>   (single child fallback)",
+            "  pr.child.grow.force <child> [years>=16]",
+            "  pr.child.task <child> <auto|water|feed|collect|harvest|ship|fish|stop>",
+            "  pr.child.work.force <child>",
+            "  pr.child.work.where <child>",
+            "  pr.child.job.set <child> <none|forager|crabpot|rancher|artisan|geologist>",
+            "  pr.child.dump <child>",
+            "  pr.sim.morning",
+            "  pr.worker.runonce",
+            "  romance_status, children_list, synergy_test",
+            "Examples:",
+            "  pr.date.immersive.start DummyPartner beach",
+            "  pr.date.reset_state",
+            "  pr.child.age.set 16",
+            "  pr.child.work.force AliceChild",
+            "  pr.child.job.set AliceChild artisan"
+        };
+
+        foreach (string line in lines)
+        {
+            this.mod.Monitor.Log($"[PR.Core] {line}", LogLevel.Info);
+        }
+
+        this.mod.Notifier.NotifyInfo("Developer command list logged to SMAPI console.", "[PR.Core]");
+    }
+
     private void OnHandsRequest(string command, string[] args)
     {
         if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
@@ -837,7 +1169,7 @@ public sealed class CommandRegistrar
         foreach (ChildRecord child in this.mod.HostSaveData.Children.Values.OrderBy(p => p.ChildName))
         {
             this.mod.Notifier.NotifyInfo(
-                $"{child.ChildName} [{child.ChildId}] age={child.AgeYears}y fed={child.IsFedToday} care={child.IsCaredToday} play={child.IsPlayedToday} task={child.AssignedTask}",
+                $"id={child.ChildId} name={child.ChildName} age={child.AgeYears}y stage={child.Stage} fed={child.IsFedToday} care={child.IsCaredToday} play={child.IsPlayedToday} task={child.AssignedTask}",
                 "[PR.System.ChildGrowth]");
         }
     }
@@ -868,6 +1200,60 @@ public sealed class CommandRegistrar
         else
         {
             this.mod.Notifier.NotifyWarn(report, "[PR.System.Synergy]");
+        }
+    }
+
+    private bool TryResolveDefaultDatePartnerToken(out string partnerToken)
+    {
+        partnerToken = string.Empty;
+        foreach (RelationshipRecord relation in this.mod.HostSaveData.Relationships.Values)
+        {
+            if (!relation.Includes(this.mod.LocalPlayerId)
+                || relation.State < RelationshipState.Dating)
+            {
+                continue;
+            }
+
+            long otherId = relation.GetOther(this.mod.LocalPlayerId);
+            Farmer? other = this.mod.FindFarmerById(otherId, includeOffline: false);
+            if (other is null)
+            {
+                continue;
+            }
+
+            partnerToken = other.Name;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryParseStandType(string token, out DateStandType standType)
+    {
+        standType = DateStandType.IceCream;
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return false;
+        }
+
+        switch (token.Trim().ToLowerInvariant())
+        {
+            case "ice":
+            case "icecream":
+            case "ice_cream":
+                standType = DateStandType.IceCream;
+                return true;
+            case "rose":
+            case "roses":
+                standType = DateStandType.Roses;
+                return true;
+            case "cloth":
+            case "clothes":
+            case "clothing":
+                standType = DateStandType.Clothing;
+                return true;
+            default:
+                return false;
         }
     }
 

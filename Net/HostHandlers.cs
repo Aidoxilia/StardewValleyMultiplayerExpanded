@@ -145,6 +145,7 @@ public sealed class HostHandlers
                 }
             case MessageType.EndDateEvent:
             case MessageType.DateEventPhase:
+            case MessageType.NpcSync:
                 break;
         }
     }

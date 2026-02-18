@@ -29,9 +29,17 @@ public sealed class DateImmersionSystem
     private readonly HashSet<string> joinedSessions = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> stableSinceBySession = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> lastRetryAtBySession = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTime> lastGraceWarpAtBySession = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTime> lastClientNotifyByKey = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Vector2> npcWanderTargetByRole = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> startNoticeShownSessions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, long> lastAppliedNpcSyncSequenceByNpc = new(StringComparer.OrdinalIgnoreCase);
     private string localRuntimeSessionId = string.Empty;
     private DateImmersionPublicState? localPublicState;
+    private const string DebugDummyPartnerToken = "dummypartner";
+    private bool transitionStarting;
+    private int transitionUntilTick;
+    private string transitionSessionId = string.Empty;
 
     private sealed class PendingImmersiveRequest
     {
@@ -176,7 +184,14 @@ public sealed class DateImmersionSystem
         this.joinedSessions.Clear();
         this.stableSinceBySession.Clear();
         this.lastRetryAtBySession.Clear();
+        this.lastGraceWarpAtBySession.Clear();
+        this.lastClientNotifyByKey.Clear();
+        this.npcWanderTargetByRole.Clear();
         this.startNoticeShownSessions.Clear();
+        this.lastAppliedNpcSyncSequenceByNpc.Clear();
+        this.transitionStarting = false;
+        this.transitionUntilTick = 0;
+        this.transitionSessionId = string.Empty;
         this.localPublicState = null;
         this.CleanupLocalRuntime();
     }
@@ -192,6 +207,18 @@ public sealed class DateImmersionSystem
         {
             this.CleanupLocalRuntime();
         }
+    }
+
+    public void OnAssetRequested(AssetRequestedEventArgs e)
+    {
+        if (!e.NameWithoutLocale.IsEquivalentTo("Data/Shops"))
+        {
+            return;
+        }
+
+        // Keep one true vanilla shop flow for date vendors.
+        // Ref: https://stardewvalleywiki.com/Modding:Shops#Open_a_custom_shop
+        // We use a vanilla shop ID at runtime (Saloon) via Utility.TryOpenShopMenu.
     }
 
     public void OnHostSaveLoadedRecovery()
@@ -260,6 +287,13 @@ public sealed class DateImmersionSystem
         }
 
         string locationName = GetMapName(state.Location);
+        if (!this.EnsureImmersiveLocationLoaded(state.Location, out string loadError))
+        {
+            this.mod.Monitor.Log($"[PR.System.DateImmersion] Ending immersive date (map_load_failed): {loadError}", LogLevel.Error);
+            this.EndImmersiveDateHost("map_load_failed", completed: false, applyOutcome: false);
+            return;
+        }
+
         bool inExpectedMap = AreParticipantsInExpectedMap(playerA, playerB, locationName);
         bool sameLocationInstance = AreParticipantsOnSameLocationInstance(playerA, playerB);
         bool joined = this.joinedSessions.Contains(state.SessionId);
@@ -270,7 +304,7 @@ public sealed class DateImmersionSystem
                 && this.joinGraceBySession.TryGetValue(state.SessionId, out DateTime graceEnd)
                 && now < graceEnd)
             {
-                if (Game1.ticks % 30 == 0)
+                if (this.ShouldAllowGraceWarp(state.SessionId, now))
                 {
                     Vector2 start = GetStartTile(state.Location);
                     this.WarpParticipant(state.PlayerAId, locationName, start);
@@ -309,6 +343,7 @@ public sealed class DateImmersionSystem
         {
             this.joinedSessions.Add(state.SessionId);
             this.joinGraceBySession.Remove(state.SessionId);
+            this.lastGraceWarpAtBySession.Remove(state.SessionId);
             this.mod.Monitor.Log(
                 $"[PR.System.DateImmersion] Participants synchronized for session {state.SessionId}. Grace window closed.",
                 LogLevel.Trace);
@@ -329,6 +364,7 @@ public sealed class DateImmersionSystem
                 state.IsConfirmed = true;
                 this.joinGraceBySession.Remove(state.SessionId);
                 this.stableSinceBySession.Remove(state.SessionId);
+                this.lastGraceWarpAtBySession.Remove(state.SessionId);
                 if (this.mod.HostSaveData.Relationships.TryGetValue(state.PairKey, out RelationshipRecord? relation))
                 {
                     relation.LastImmersiveDateConfirmedDay = this.mod.GetCurrentDayNumber();
@@ -449,6 +485,115 @@ public sealed class DateImmersionSystem
         return true;
     }
 
+    public bool ForceStartImmersiveDateDebugFromLocal(string partnerToken, ImmersiveDateLocation location, out string message)
+    {
+        if (!Context.IsWorldReady)
+        {
+            message = "World not ready.";
+            return false;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            message = "Debug force start is host-only.";
+            return false;
+        }
+
+        if (!this.ForceResetDateStateHost(clearDailyHistory: true, out string resetMessage))
+        {
+            message = resetMessage;
+            return false;
+        }
+
+        long requesterId = this.mod.LocalPlayerId;
+        string requesterName = this.mod.LocalPlayerName;
+        long partnerId = requesterId;
+        string partnerName = "DummyPartner";
+        bool usingDummy = true;
+
+        if (!string.IsNullOrWhiteSpace(partnerToken)
+            && !string.Equals(partnerToken.Trim(), DebugDummyPartnerToken, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(partnerToken.Trim(), "dummy", StringComparison.OrdinalIgnoreCase)
+            && this.mod.TryResolvePlayerToken(partnerToken, out Farmer? partner)
+            && this.mod.IsPlayerOnline(partner.UniqueMultiplayerID))
+        {
+            usingDummy = false;
+            partnerId = partner.UniqueMultiplayerID;
+            partnerName = partner.Name;
+        }
+
+        RelationshipRecord relation = ConsentSystem.GetOrCreateRelationship(
+            this.mod.HostSaveData,
+            requesterId,
+            partnerId,
+            requesterName,
+            partnerName);
+        if (relation.State == RelationshipState.None)
+        {
+            relation.State = RelationshipState.Dating;
+        }
+
+        relation.LastImmersiveDateRequestedDay = -1;
+        relation.LastImmersiveDateConfirmedDay = -1;
+        relation.LastImmersiveDateDay = -1;
+
+        this.StartImmersiveDateSessionHost(requesterId, partnerId, location);
+        this.mod.MarkDataDirty("Debug force immersive date start.", flushNow: true);
+        message = usingDummy
+            ? $"Debug immersive date force-started with DummyPartner on {location}."
+            : $"Debug immersive date force-started with {partnerName} on {location}.";
+        return true;
+    }
+
+    public bool ForceResetDateStateHost(bool clearDailyHistory, out string message)
+    {
+        if (!Context.IsWorldReady)
+        {
+            message = "World not ready.";
+            return false;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            message = "Only host can reset date state.";
+            return false;
+        }
+
+        DateImmersionSaveState? active = this.mod.HostSaveData.ActiveImmersiveDate;
+        if (active is not null)
+        {
+            this.EndImmersiveDateHost("debug_reset", completed: false, applyOutcome: false);
+        }
+
+        this.processedInteractionRequests.Clear();
+        this.pendingRequests.Clear();
+        this.joinGraceBySession.Clear();
+        this.joinedSessions.Clear();
+        this.stableSinceBySession.Clear();
+        this.lastRetryAtBySession.Clear();
+        this.lastAmbientBySession.Clear();
+        this.lastDuoPulseBySession.Clear();
+        this.startNoticeShownSessions.Clear();
+
+        if (clearDailyHistory)
+        {
+            foreach (RelationshipRecord relation in this.mod.HostSaveData.Relationships.Values)
+            {
+                relation.LastImmersiveDateRequestedDay = -1;
+                relation.LastImmersiveDateConfirmedDay = -1;
+                relation.LastImmersiveDateDay = -1;
+            }
+        }
+
+        this.mod.HostSaveData.ActiveImmersiveDate = null;
+        this.mod.MarkDataDirty("Debug reset immersive date runtime state.", flushNow: true);
+        this.BroadcastImmersiveDateState(active: false, "debug_reset");
+        message = clearDailyHistory
+            ? "Date state reset complete (including daily immersive history)."
+            : "Date state reset complete.";
+        return true;
+    }
+
     public bool EndImmersiveDateFromLocal(out string message)
     {
         DateImmersionPublicState? state = this.GetActivePublicState();
@@ -483,6 +628,7 @@ public sealed class DateImmersionSystem
         }
 
         message = "Immersive date end request sent.";
+        this.ClearTransitionGuard();
         return true;
     }
 
@@ -568,6 +714,11 @@ public sealed class DateImmersionSystem
         return true;
     }
 
+    public bool OpenVendorShopFromLocal(out string message)
+    {
+        return this.TryOpenVanillaVendorShopFromLocal(out message);
+    }
+
     public bool TryHandleLocalInteractionButton(ButtonPressedEventArgs e)
     {
         if (!Context.IsWorldReady || Game1.activeClickableMenu is not null || e.Button != SButton.MouseRight)
@@ -587,15 +738,13 @@ public sealed class DateImmersionSystem
             return false;
         }
 
-        DateStandType? stand = this.GetNearestStand(Game1.player.Tile, maxDistance: 1.8f);
-        if (stand.HasValue)
-        {
-            Game1.activeClickableMenu = new UI.DateStandMenu(this.mod, this, stand.Value);
-            return true;
-        }
-
         if (this.IsNearDateNpc(Game1.player.Tile, 2f))
         {
+            if (this.TryOpenVanillaVendorShopFromLocal(out _))
+            {
+                return true;
+            }
+
             ImmersiveDateInteractionRequestMessage payload = new()
             {
                 RequestId = Guid.NewGuid().ToString("N"),
@@ -614,6 +763,13 @@ public sealed class DateImmersionSystem
                 this.mod.NetSync.SendToPlayer(MessageType.ImmersiveDateInteractionRequest, payload, Game1.MasterPlayer.UniqueMultiplayerID);
             }
 
+            return true;
+        }
+
+        DateStandType? stand = this.GetNearestStand(Game1.player.Tile, maxDistance: 1.8f);
+        if (stand.HasValue)
+        {
+            Game1.activeClickableMenu = new UI.DateStandMenu(this.mod, this, stand.Value);
             return true;
         }
 
@@ -847,9 +1003,36 @@ public sealed class DateImmersionSystem
 
     private void StartImmersiveDateSessionHost(long requesterId, long partnerId, ImmersiveDateLocation location)
     {
+        this.ReleaseTransitionGuardIfExpired();
+        string transitionKey = ConsentSystem.GetPairKey(requesterId, partnerId);
+        if (this.transitionStarting
+            && string.Equals(this.transitionSessionId, transitionKey, StringComparison.OrdinalIgnoreCase)
+            && Game1.ticks <= this.transitionUntilTick)
+        {
+            this.mod.Monitor.Log($"[PR.System.DateImmersion] Start ignored for {transitionKey}: transition already in progress.", LogLevel.Trace);
+            return;
+        }
+
+        this.transitionStarting = true;
+        this.transitionSessionId = transitionKey;
+        this.transitionUntilTick = Game1.ticks + 120;
+
+        if (!this.EnsureImmersiveLocationLoaded(location, out string loadError))
+        {
+            this.mod.NetSync.SendError(requesterId, "map_load_failed", loadError);
+            if (partnerId != requesterId)
+            {
+                this.mod.NetSync.SendError(partnerId, "map_load_failed", loadError);
+            }
+            this.mod.Monitor.Log($"[PR.System.DateImmersion] Debug/host start aborted: {loadError}", LogLevel.Error);
+            this.ClearTransitionGuard();
+            return;
+        }
+
         RelationshipRecord? relation = this.mod.DatingSystem.GetRelationship(requesterId, partnerId);
         if (relation is null)
         {
+            this.ClearTransitionGuard();
             return;
         }
 
@@ -891,6 +1074,7 @@ public sealed class DateImmersionSystem
         this.localPublicState = this.BuildPublicState(state);
         this.EnsureLocalRuntime();
         this.BroadcastImmersiveDateState(active: true, "started");
+        this.ClearTransitionGuard();
     }
 
     private bool TryRetryStartWarpHost(DateImmersionSaveState state, bool manual, out string message)
@@ -921,6 +1105,13 @@ public sealed class DateImmersionSystem
         {
             message = "Retry backoff active.";
             return true;
+        }
+
+        if (!this.EnsureImmersiveLocationLoaded(state.Location, out string loadError))
+        {
+            message = $"Retry failed: {loadError}";
+            this.mod.Monitor.Log($"[PR.System.DateImmersion] {message}", LogLevel.Error);
+            return false;
         }
 
         state.RetryAttempts++;
@@ -1034,24 +1225,24 @@ public sealed class DateImmersionSystem
                 this.HandlePurchaseHost(state, request, offerToPartner: true);
                 return;
             case DateInteractionType.EndDate:
-            {
-                bool completed = Game1.timeOfDay >= this.mod.Config.ImmersiveDateEndTime;
-                this.EndImmersiveDateHost("manual_end", completed);
-                this.SendInteractionResult(state, request, success: true, completed ? "Immersive date completed." : "Immersive date ended early.", 0, false, 0);
-                return;
-            }
-            case DateInteractionType.RetryStart:
-            {
-                if (state.IsConfirmed)
                 {
-                    this.SendInteractionResult(state, request, success: false, "Session already confirmed; retry skipped.", 0, offeredToPartner: false, 0);
+                    bool completed = Game1.timeOfDay >= this.mod.Config.ImmersiveDateEndTime;
+                    this.EndImmersiveDateHost("manual_end", completed);
+                    this.SendInteractionResult(state, request, success: true, completed ? "Immersive date completed." : "Immersive date ended early.", 0, false, 0);
                     return;
                 }
+            case DateInteractionType.RetryStart:
+                {
+                    if (state.IsConfirmed)
+                    {
+                        this.SendInteractionResult(state, request, success: false, "Session already confirmed; retry skipped.", 0, offeredToPartner: false, 0);
+                        return;
+                    }
 
-                bool retried = this.TryRetryStartWarpHost(state, manual: true, out string retryMessage);
-                this.SendInteractionResult(state, request, retried, retryMessage, 0, offeredToPartner: false, 0);
-                return;
-            }
+                    bool retried = this.TryRetryStartWarpHost(state, manual: true, out string retryMessage);
+                    this.SendInteractionResult(state, request, retried, retryMessage, 0, offeredToPartner: false, 0);
+                    return;
+                }
             default:
                 this.SendInteractionResult(state, request, success: false, "Unsupported interaction.", 0, offeredToPartner: false, 0);
                 return;
@@ -1117,6 +1308,27 @@ public sealed class DateImmersionSystem
 
     public void ApplyInteractionResultClient(ImmersiveDateInteractionResultMessage result)
     {
+        string requestId = result.RequestId ?? string.Empty;
+        if (requestId.StartsWith("ambient_", StringComparison.OrdinalIgnoreCase)
+            || requestId.StartsWith("duopulse_", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(result.Message))
+            {
+                this.mod.Monitor.Log($"[PR.System.DateImmersion] {result.Message}", LogLevel.Trace);
+            }
+
+            return;
+        }
+
+        string key = $"{result.Success}:{result.Message}";
+        DateTime now = DateTime.UtcNow;
+        if (this.lastClientNotifyByKey.TryGetValue(key, out DateTime previous)
+            && now - previous < TimeSpan.FromSeconds(2))
+        {
+            return;
+        }
+
+        this.lastClientNotifyByKey[key] = now;
         if (result.Success)
         {
             if (!string.IsNullOrWhiteSpace(result.Message))
@@ -1127,6 +1339,121 @@ public sealed class DateImmersionSystem
         else if (!string.IsNullOrWhiteSpace(result.Message))
         {
             this.mod.Notifier.NotifyWarn(result.Message, "[PR.System.DateImmersion]");
+        }
+    }
+
+    public void BroadcastNpcSyncHost()
+    {
+        if (!this.mod.IsHostPlayer || !this.mod.Config.EnableImmersiveDates)
+        {
+            return;
+        }
+
+        DateImmersionSaveState? state = this.mod.HostSaveData.ActiveImmersiveDate;
+        if (state is null || !state.IsActive)
+        {
+            return;
+        }
+
+        string locationName = GetMapName(state.Location);
+        GameLocation? location = Game1.getLocationFromName(locationName);
+        if (location is null)
+        {
+            return;
+        }
+
+        NpcSyncMessage sync = new()
+        {
+            Channel = "date",
+            SequenceId = Game1.ticks
+        };
+
+        foreach (NPC npc in location.characters.Where(p =>
+                     p.modData.ContainsKey(TempNpcFlagKey)
+                     && p.modData.TryGetValue(TempNpcSessionKey, out string? npcSession)
+                     && string.Equals(npcSession, state.SessionId, StringComparison.OrdinalIgnoreCase)))
+        {
+            string role = npc.modData.TryGetValue(TempNpcRoleKey, out string? r) && !string.IsNullOrWhiteSpace(r)
+                ? r
+                : npc.Name;
+
+            sync.Entries.Add(new NpcSyncEntryMessage
+            {
+                GroupId = state.SessionId,
+                LocationName = location.NameOrUniqueName,
+                NpcName = role,
+                PixelX = npc.Position.X,
+                PixelY = npc.Position.Y,
+                VelocityX = 0f,
+                VelocityY = 0f,
+                FacingDirection = npc.FacingDirection,
+                AnimationFrame = npc.Sprite?.currentFrame ?? -1
+            });
+        }
+
+        if (sync.Entries.Count > 0)
+        {
+            this.mod.NetSync.Broadcast(MessageType.NpcSync, sync);
+        }
+    }
+
+    public void ApplyNpcSyncClient(NpcSyncMessage sync)
+    {
+        if (sync is null
+            || !Context.IsWorldReady
+            || this.mod.IsHostPlayer
+            || !string.Equals(sync.Channel, "date", StringComparison.OrdinalIgnoreCase)
+            || sync.Entries.Count == 0)
+        {
+            return;
+        }
+
+        DateImmersionPublicState? activeState = this.localPublicState ?? this.mod.ClientSnapshot.ActiveImmersiveDate;
+        if (activeState is null || !activeState.IsActive)
+        {
+            return;
+        }
+
+        this.EnsureLocalRuntime();
+
+        foreach (NpcSyncEntryMessage entry in sync.Entries)
+        {
+            if (!string.Equals(entry.GroupId, activeState.SessionId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string seqKey = $"date:{entry.GroupId}:{entry.NpcName}";
+            if (this.lastAppliedNpcSyncSequenceByNpc.TryGetValue(seqKey, out long lastSeq)
+                && sync.SequenceId <= lastSeq)
+            {
+                continue;
+            }
+
+            GameLocation? location = Game1.getLocationFromName(entry.LocationName);
+            if (location is null)
+            {
+                continue;
+            }
+
+            NPC? npc = this.TryFindDateRuntimeNpc(location, activeState.SessionId, entry.NpcName);
+            if (npc is null)
+            {
+                continue;
+            }
+
+            Vector2 target = new(entry.PixelX, entry.PixelY);
+            float distance = Vector2.Distance(npc.Position, target);
+            npc.Position = distance >= 96f
+                ? target
+                : Vector2.Lerp(npc.Position, target, 0.65f);
+            npc.FacingDirection = Math.Clamp(entry.FacingDirection, 0, 3);
+            if (entry.AnimationFrame >= 0 && npc.Sprite is not null)
+            {
+                npc.Sprite.currentFrame = entry.AnimationFrame;
+            }
+
+            this.lastAppliedNpcSyncSequenceByNpc[seqKey] = sync.SequenceId;
         }
     }
 
@@ -1364,7 +1691,7 @@ public sealed class DateImmersionSystem
         this.mod.NetSync.BroadcastSnapshotToAll();
     }
 
-    private void EndImmersiveDateHost(string reason, bool completed)
+    private void EndImmersiveDateHost(string reason, bool completed, bool applyOutcome = true)
     {
         DateImmersionSaveState? state = this.mod.HostSaveData.ActiveImmersiveDate;
         if (!this.mod.IsHostPlayer || state is null)
@@ -1372,7 +1699,7 @@ public sealed class DateImmersionSystem
             return;
         }
 
-        if (this.mod.HostSaveData.Relationships.TryGetValue(state.PairKey, out RelationshipRecord? relation))
+        if (applyOutcome && this.mod.HostSaveData.Relationships.TryGetValue(state.PairKey, out RelationshipRecord? relation))
         {
             bool confirmed = state.IsConfirmed;
             if (completed && confirmed)
@@ -1391,14 +1718,18 @@ public sealed class DateImmersionSystem
             }
         }
 
+        this.WarpParticipantsAfterDateIfNeeded(state);
+
         this.mod.HostSaveData.ActiveImmersiveDate = null;
         this.processedInteractionRequests.Clear();
         this.lastAmbientBySession.Remove(state.SessionId);
         this.lastDuoPulseBySession.Remove(state.SessionId);
         this.joinGraceBySession.Remove(state.SessionId);
+        this.lastGraceWarpAtBySession.Remove(state.SessionId);
         this.joinedSessions.Remove(state.SessionId);
         this.stableSinceBySession.Remove(state.SessionId);
         this.lastRetryAtBySession.Remove(state.SessionId);
+        this.ClearTransitionGuard();
         this.mod.MarkDataDirty($"Immersive date ended ({reason}).", flushNow: true);
         this.CleanupLocalRuntime();
         this.BroadcastImmersiveDateState(active: false, reason);
@@ -1490,9 +1821,7 @@ public sealed class DateImmersionSystem
             return;
         }
 
-        this.TrySpawnNpc(location, state.SessionId, "vendor_ice", "Alex", GetStandTile(DateStandType.IceCream, state.Location) + new Vector2(0f, 1f));
-        this.TrySpawnNpc(location, state.SessionId, "vendor_roses", "Haley", GetStandTile(DateStandType.Roses, state.Location) + new Vector2(0f, 1f));
-        this.TrySpawnNpc(location, state.SessionId, "vendor_cloth", "Emily", GetStandTile(DateStandType.Clothing, state.Location) + new Vector2(0f, 1f));
+        this.TrySpawnNpc(location, state.SessionId, "vendor_main", "Gus", GetStandTile(DateStandType.Roses, state.Location) + new Vector2(0f, 1f));
         this.TrySpawnNpc(location, state.SessionId, "walker_1", "Sam", GetStartTile(state.Location) + new Vector2(2f, 1f));
         this.TrySpawnNpc(location, state.SessionId, "walker_2", "Leah", GetStartTile(state.Location) + new Vector2(-2f, 1f));
         this.TrySpawnNpc(location, state.SessionId, "walker_3", "Abigail", GetStartTile(state.Location) + new Vector2(4f, -1f));
@@ -1535,10 +1864,15 @@ public sealed class DateImmersionSystem
             return;
         }
 
+        if (!this.mod.IsHostPlayer)
+        {
+            return;
+        }
+
         string sessionId = this.localPublicState.SessionId;
         string mapName = GetMapName(this.localPublicState.Location);
         GameLocation? location = Game1.getLocationFromName(mapName);
-        if (location is null || Game1.ticks % 40 != 0)
+        if (location is null)
         {
             return;
         }
@@ -1550,21 +1884,136 @@ public sealed class DateImmersionSystem
         {
             bool isVendor = npc.modData.TryGetValue(TempNpcRoleKey, out string? role)
                 && role.Contains("vendor_", StringComparison.OrdinalIgnoreCase);
-            double moveChance = isVendor ? 0.22d : 0.68d;
-            if (this.random.NextDouble() > moveChance)
+
+            string roleKey = role ?? npc.Name;
+            Vector2 currentTile = npc.Position / 64f;
+            if (this.npcWanderTargetByRole.TryGetValue(roleKey, out Vector2 targetTile))
+            {
+                Vector2 targetPos = targetTile * 64f;
+                Vector2 delta = targetPos - npc.Position;
+                if (delta.LengthSquared() > 9f)
+                {
+                    delta.Normalize();
+                    float speed = isVendor ? 1.3f : 1.8f;
+                    npc.Position += delta * speed;
+                    npc.FacingDirection = Math.Abs(delta.X) >= Math.Abs(delta.Y)
+                        ? (delta.X >= 0f ? 1 : 3)
+                        : (delta.Y >= 0f ? 2 : 0);
+                    continue;
+                }
+
+                this.npcWanderTargetByRole.Remove(roleKey);
+            }
+
+            if (isVendor || Game1.ticks % 24 != 0)
             {
                 continue;
             }
 
-            int px = isVendor ? this.random.Next(-1, 2) * 4 : this.random.Next(-1, 2) * 14;
-            int py = isVendor ? this.random.Next(-1, 2) * 4 : this.random.Next(-1, 2) * 14;
-            Vector2 drift = new(px, py);
-            npc.Position += drift;
-            if (!isVendor && this.random.NextDouble() > 0.5d)
+            if (this.random.NextDouble() > 0.32d)
             {
-                npc.FacingDirection = this.random.Next(0, 4);
+                continue;
+            }
+
+            List<Vector2> candidates = new()
+            {
+                currentTile,
+                currentTile + new Vector2(1f, 0f),
+                currentTile + new Vector2(-1f, 0f),
+                currentTile + new Vector2(0f, 1f),
+                currentTile + new Vector2(0f, -1f)
+            };
+
+            Vector2 selected = candidates[this.random.Next(candidates.Count)];
+            if (!this.IsSafeNpcTile(location, selected, npc))
+            {
+                continue;
+            }
+
+            if (selected == currentTile)
+            {
+                continue;
+            }
+
+            this.npcWanderTargetByRole[roleKey] = selected;
+        }
+    }
+
+    private bool TryOpenVanillaVendorShopFromLocal(out string message)
+    {
+        if (!Context.IsWorldReady)
+        {
+            message = "World not ready.";
+            return false;
+        }
+
+        // Vanilla menu flow from Data/Shops + Utility.TryOpenShopMenu.
+        // Ref: https://stardewvalleywiki.com/Modding:Shops#Open_a_custom_shop
+        bool opened = Utility.TryOpenShopMenu("Saloon", string.Empty, true);
+        message = opened ? "Vendor shop opened." : "Vendor shop unavailable right now.";
+        if (!opened)
+        {
+            this.mod.Monitor.Log("[PR.System.DateImmersion] Vendor shop open failed for 'Saloon'.", LogLevel.Trace);
+        }
+
+        return opened;
+    }
+
+    private bool ShouldAllowGraceWarp(string sessionId, DateTime now)
+    {
+        if (!this.lastGraceWarpAtBySession.TryGetValue(sessionId, out DateTime lastWarp)
+            || now - lastWarp >= TimeSpan.FromSeconds(1.5))
+        {
+            this.lastGraceWarpAtBySession[sessionId] = now;
+            return true;
+        }
+
+        return false;
+    }
+
+    private void ClearTransitionGuard()
+    {
+        this.transitionStarting = false;
+        this.transitionSessionId = string.Empty;
+        this.transitionUntilTick = 0;
+    }
+
+    private void ReleaseTransitionGuardIfExpired()
+    {
+        if (!this.transitionStarting)
+        {
+            return;
+        }
+
+        if (Game1.ticks > this.transitionUntilTick)
+        {
+            this.ClearTransitionGuard();
+        }
+    }
+
+    private NPC? TryFindDateRuntimeNpc(GameLocation location, string sessionId, string npcRoleOrName)
+    {
+        foreach (NPC npc in location.characters)
+        {
+            if (!npc.modData.TryGetValue(TempNpcSessionKey, out string? npcSession)
+                || !string.Equals(npcSession, sessionId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (npc.modData.TryGetValue(TempNpcRoleKey, out string? role)
+                && string.Equals(role, npcRoleOrName, StringComparison.OrdinalIgnoreCase))
+            {
+                return npc;
+            }
+
+            if (string.Equals(npc.Name, npcRoleOrName, StringComparison.OrdinalIgnoreCase))
+            {
+                return npc;
             }
         }
+
+        return null;
     }
 
     private void CleanupLocalRuntime()
@@ -1606,6 +2055,7 @@ public sealed class DateImmersionSystem
         this.localStands.Clear();
         this.localNpcNames.Clear();
         this.localStandProps.Clear();
+        this.npcWanderTargetByRole.Clear();
     }
 
     private DateStandType? GetNearestStand(Vector2 playerTile, float maxDistance)
@@ -1804,6 +2254,16 @@ public sealed class DateImmersionSystem
     {
         return location switch
         {
+            ImmersiveDateLocation.Beach => "Date_Beach",
+            ImmersiveDateLocation.Forest => "Forest",
+            _ => "Town"
+        };
+    }
+
+    private static string GetPostDateMapName(ImmersiveDateLocation location)
+    {
+        return location switch
+        {
             ImmersiveDateLocation.Beach => "Beach",
             ImmersiveDateLocation.Forest => "Forest",
             _ => "Town"
@@ -1935,6 +2395,101 @@ public sealed class DateImmersionSystem
             DialogText = "Your immersive date has started."
         };
         this.mod.NetSync.SendToPlayer(MessageType.StartDateEvent, message, playerId);
+    }
+
+    private bool EnsureImmersiveLocationLoaded(ImmersiveDateLocation location, out string error)
+    {
+        error = string.Empty;
+        if (location != ImmersiveDateLocation.Beach)
+        {
+            return true;
+        }
+
+        const string mapName = "Date_Beach";
+        try
+        {
+            _ = this.mod.Helper.GameContent.Load<xTile.Map>("Maps/Date_Beach");
+        }
+        catch (Exception ex)
+        {
+            error = $"Could not load asset 'Maps/Date_Beach' ({ex.GetType().Name}: {ex.Message})";
+            return false;
+        }
+
+        GameLocation? existing = Game1.getLocationFromName(mapName);
+        if (existing is not null)
+        {
+            return true;
+        }
+
+        try
+        {
+            GameLocation locationInstance = new("Maps/Date_Beach", mapName)
+            {
+                IsOutdoors = true
+            };
+            Game1.locations.Add(locationInstance);
+            this.mod.Monitor.Log("[PR.System.DateImmersion] Runtime location created: Date_Beach.", LogLevel.Info);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"Could not create runtime location 'Date_Beach' ({ex.GetType().Name}: {ex.Message})";
+            return false;
+        }
+    }
+
+    private void WarpParticipantsAfterDateIfNeeded(DateImmersionSaveState state)
+    {
+        if (state.Location != ImmersiveDateLocation.Beach)
+        {
+            return;
+        }
+
+        string returnMap = GetPostDateMapName(state.Location);
+        Vector2 returnStart = GetStartTile(ImmersiveDateLocation.Beach);
+        this.WarpParticipant(state.PlayerAId, returnMap, returnStart);
+        this.WarpParticipant(state.PlayerBId, returnMap, returnStart + new Vector2(1f, 0f));
+        this.mod.Monitor.Log("[PR.System.DateImmersion] Session cleanup: participants warped from Date_Beach back to Beach.", LogLevel.Info);
+    }
+
+    private bool IsSafeNpcTile(GameLocation location, Vector2 tile, NPC movingNpc)
+    {
+        int width = location.Map?.Layers[0]?.LayerWidth ?? 0;
+        int height = location.Map?.Layers[0]?.LayerHeight ?? 0;
+        int x = (int)Math.Floor(tile.X);
+        int y = (int)Math.Floor(tile.Y);
+        if (width <= 0 || height <= 0 || x < 1 || y < 1 || x >= width - 1 || y >= height - 1)
+        {
+            return false;
+        }
+
+        if (location.isWaterTile(x, y)
+            || location.doesTileHaveProperty(x, y, "Water", "Back") is not null
+            || location.Objects.ContainsKey(new Vector2(x, y)))
+        {
+            return false;
+        }
+
+        if (location.characters.Any(p => p != movingNpc && Vector2.Distance(p.Tile, new Vector2(x, y)) < 0.1f))
+        {
+            return false;
+        }
+
+        xTile.Dimensions.Location tileLoc = new(x, y);
+        if (location.isTileLocationOpen(tileLoc))
+        {
+            return true;
+        }
+
+        try
+        {
+            return location.isTilePassable(tileLoc, Game1.viewport);
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
 

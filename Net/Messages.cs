@@ -241,6 +241,26 @@ public sealed class ChildCommandResultMessage
     public string Message { get; set; } = string.Empty;
 }
 
+public sealed class NpcSyncEntryMessage
+{
+    public string GroupId { get; set; } = string.Empty;
+    public string LocationName { get; set; } = string.Empty;
+    public string NpcName { get; set; } = string.Empty;
+    public float PixelX { get; set; }
+    public float PixelY { get; set; }
+    public float VelocityX { get; set; }
+    public float VelocityY { get; set; }
+    public int FacingDirection { get; set; }
+    public int AnimationFrame { get; set; } = -1;
+}
+
+public sealed class NpcSyncMessage
+{
+    public string Channel { get; set; } = string.Empty;
+    public long SequenceId { get; set; }
+    public List<NpcSyncEntryMessage> Entries { get; set; } = new();
+}
+
 public sealed class ErrorMessage
 {
     public string Code { get; set; } = string.Empty;

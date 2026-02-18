@@ -1,4 +1,5 @@
 using PlayerRomance.Data;
+using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Objects;
 
@@ -38,6 +39,102 @@ public sealed class LegacyChildrenSystem
             this.mod.MarkDataDirty("Legacy children daily update.", flushNow: true);
             this.mod.NetSync.BroadcastSnapshotToAll();
         }
+    }
+
+    public bool SetChildJobDebug(string childToken, string jobToken, out string message)
+    {
+        if (!Context.IsWorldReady)
+        {
+            message = "World not ready.";
+            return false;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            message = "Only host can set child job.";
+            return false;
+        }
+
+        ChildRecord? child = this.mod.HostSaveData.Children.Values.FirstOrDefault(c =>
+            c.ChildId.Equals(childToken, StringComparison.OrdinalIgnoreCase)
+            || c.ChildName.Equals(childToken, StringComparison.OrdinalIgnoreCase));
+        if (child is null)
+        {
+            message = $"Child '{childToken}' not found.";
+            return false;
+        }
+
+        string normalized = (jobToken ?? string.Empty).Trim().ToLowerInvariant();
+        switch (normalized)
+        {
+            case "none":
+                child.LegacyAssignment = LegacyChildAssignment.None;
+                child.LegacySpecialization = LegacyChildSpecialization.None;
+                break;
+            case "forager":
+                child.LegacyAssignment = LegacyChildAssignment.Forager;
+                break;
+            case "crabpot":
+            case "crab":
+            case "crabpotassistant":
+                child.LegacyAssignment = LegacyChildAssignment.CrabPotAssistant;
+                break;
+            case "rancher":
+                child.LegacySpecialization = LegacyChildSpecialization.Rancher;
+                break;
+            case "artisan":
+                child.LegacySpecialization = LegacyChildSpecialization.Artisan;
+                break;
+            case "geologist":
+                child.LegacySpecialization = LegacyChildSpecialization.Geologist;
+                break;
+            default:
+                message = "Unknown job token. Use: none|forager|crabpot|rancher|artisan|geologist.";
+                return false;
+        }
+
+        this.mod.MarkDataDirty($"Debug set child job {child.ChildId} -> {normalized}.", flushNow: true);
+        this.mod.NetSync.BroadcastSnapshotToAll();
+        message = $"{child.ChildName} legacy assignment={child.LegacyAssignment}, specialization={child.LegacySpecialization}.";
+        return true;
+    }
+
+    public bool ForceRunChildDailyDebug(string childToken, out string message)
+    {
+        if (!Context.IsWorldReady)
+        {
+            message = "World not ready.";
+            return false;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            message = "Only host can run forced child daily legacy.";
+            return false;
+        }
+
+        ChildRecord? child = this.mod.HostSaveData.Children.Values.FirstOrDefault(c =>
+            c.ChildId.Equals(childToken, StringComparison.OrdinalIgnoreCase)
+            || c.ChildName.Equals(childToken, StringComparison.OrdinalIgnoreCase));
+        if (child is null)
+        {
+            message = $"Child '{childToken}' not found.";
+            return false;
+        }
+
+        int day = this.mod.GetCurrentDayNumber();
+        child.LastLegacyTaskDay = -1;
+        bool changed = this.ProcessChildLegacyDaily(child, day);
+        if (changed)
+        {
+            this.mod.MarkDataDirty($"Debug force legacy daily for child {child.ChildId}.", flushNow: true);
+            this.mod.NetSync.BroadcastSnapshotToAll();
+        }
+
+        message = changed
+            ? $"Forced legacy daily run applied for {child.ChildName}."
+            : $"Forced legacy run executed for {child.ChildName} (no output changes this pass).";
+        return true;
     }
 
     private bool ProcessChildLegacyDaily(ChildRecord child, int day)

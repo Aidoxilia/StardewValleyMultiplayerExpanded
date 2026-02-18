@@ -23,6 +23,7 @@ public sealed class ChildGrowthSystem
     private readonly ModEntry mod;
     private readonly Dictionary<string, string> runtimeNpcByChildId = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> nextWanderTickByChildId = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, long> lastAppliedNpcSyncSequenceByChild = new(StringComparer.OrdinalIgnoreCase);
 
     public ChildGrowthSystem(ModEntry mod)
     {
@@ -33,6 +34,7 @@ public sealed class ChildGrowthSystem
     {
         this.runtimeNpcByChildId.Clear();
         this.nextWanderTickByChildId.Clear();
+        this.lastAppliedNpcSyncSequenceByChild.Clear();
         if (!Context.IsWorldReady)
         {
             return;
@@ -170,7 +172,7 @@ public sealed class ChildGrowthSystem
                     };
                 }
 
-                if (!this.TryFindNearestSafeTile(location, desiredTile, maxRadius: 3, out Vector2 safeTile))
+                if (!this.TryFindNearestSafeTile(location, desiredTile, maxRadius: 3, out Vector2 safeTile, npc))
                 {
                     continue;
                 }
@@ -200,6 +202,132 @@ public sealed class ChildGrowthSystem
                     ? (move.X >= 0f ? 1 : 3)
                     : (move.Y >= 0f ? 2 : 0);
             }
+        }
+    }
+
+    public void BroadcastNpcSyncHost()
+    {
+        if (!this.mod.IsHostPlayer || !this.mod.Config.EnableChildGrowth || !Context.IsWorldReady)
+        {
+            return;
+        }
+
+        NpcSyncMessage sync = new()
+        {
+            Channel = "child",
+            SequenceId = Game1.ticks
+        };
+
+        foreach (GameLocation location in Game1.locations)
+        {
+            foreach (NPC npc in location.characters.Where(this.IsRuntimeChildNpc))
+            {
+                if (!npc.modData.TryGetValue(ChildNpcIdKey, out string? childId)
+                    || string.IsNullOrWhiteSpace(childId))
+                {
+                    continue;
+                }
+
+                sync.Entries.Add(new NpcSyncEntryMessage
+                {
+                    GroupId = childId,
+                    LocationName = location.NameOrUniqueName,
+                    NpcName = npc.Name,
+                    PixelX = npc.Position.X,
+                    PixelY = npc.Position.Y,
+                    VelocityX = 0f,
+                    VelocityY = 0f,
+                    FacingDirection = npc.FacingDirection,
+                    AnimationFrame = npc.Sprite?.currentFrame ?? -1
+                });
+            }
+        }
+
+        if (sync.Entries.Count > 0)
+        {
+            this.mod.NetSync.Broadcast(MessageType.NpcSync, sync);
+        }
+    }
+
+    public void ApplyNpcSyncClient(NpcSyncMessage sync)
+    {
+        if (sync is null
+            || this.mod.IsHostPlayer
+            || !Context.IsWorldReady
+            || !string.Equals(sync.Channel, "child", StringComparison.OrdinalIgnoreCase)
+            || sync.Entries.Count == 0)
+        {
+            return;
+        }
+
+        foreach (NpcSyncEntryMessage entry in sync.Entries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.GroupId))
+            {
+                continue;
+            }
+
+            ChildRecord? child = this.mod.ClientSnapshot.Children.FirstOrDefault(p =>
+                string.Equals(p.ChildId, entry.GroupId, StringComparison.OrdinalIgnoreCase));
+            if (child is null)
+            {
+                continue;
+            }
+
+            this.EnsureV3Defaults(child);
+            if (child.Stage == ChildLifeStage.Infant)
+            {
+                continue;
+            }
+
+            string seqKey = $"child:{entry.GroupId}";
+            if (this.lastAppliedNpcSyncSequenceByChild.TryGetValue(seqKey, out long lastSeq)
+                && sync.SequenceId <= lastSeq)
+            {
+                continue;
+            }
+
+            GameLocation? location = Game1.getLocationFromName(entry.LocationName);
+            if (location is null)
+            {
+                continue;
+            }
+
+            NPC? npc = location.characters.FirstOrDefault(p =>
+                this.IsRuntimeChildNpc(p)
+                && p.modData.TryGetValue(ChildNpcIdKey, out string? existingId)
+                && string.Equals(existingId, entry.GroupId, StringComparison.OrdinalIgnoreCase));
+            if (npc is null)
+            {
+                this.TrySpawnOrRefreshRuntimeNpc(child);
+                location = Game1.getLocationFromName(entry.LocationName);
+                if (location is null)
+                {
+                    continue;
+                }
+
+                npc = location.characters.FirstOrDefault(p =>
+                    this.IsRuntimeChildNpc(p)
+                    && p.modData.TryGetValue(ChildNpcIdKey, out string? existingId)
+                    && string.Equals(existingId, entry.GroupId, StringComparison.OrdinalIgnoreCase));
+                if (npc is null)
+                {
+                    continue;
+                }
+            }
+
+            Vector2 targetPos = new(entry.PixelX, entry.PixelY);
+            float distance = Vector2.Distance(npc.Position, targetPos);
+            npc.Position = distance >= 128f
+                ? targetPos
+                : Vector2.Lerp(npc.Position, targetPos, 0.6f);
+            npc.FacingDirection = Math.Clamp(entry.FacingDirection, 0, 3);
+            if (entry.AnimationFrame >= 0 && npc.Sprite is not null)
+            {
+                npc.Sprite.currentFrame = entry.AnimationFrame;
+            }
+
+            this.lastAppliedNpcSyncSequenceByChild[seqKey] = sync.SequenceId;
         }
     }
 
@@ -487,6 +615,20 @@ public sealed class ChildGrowthSystem
         return true;
     }
 
+    public bool ForceGrowToAdultFromLocal(string childIdOrName, int targetYears, out string message)
+    {
+        int safeYears = Math.Max(16, targetYears);
+        bool ok = this.SetChildAgeYearsFromLocal(childIdOrName, safeYears, out string setMsg);
+        if (!ok)
+        {
+            message = setMsg;
+            return false;
+        }
+
+        message = $"Adult growth forced to {safeYears}y. {setMsg}";
+        return true;
+    }
+
     public bool SetChildTaskFromLocal(string childIdOrName, string taskToken, out string message)
     {
         if (string.IsNullOrWhiteSpace(childIdOrName))
@@ -537,9 +679,7 @@ public sealed class ChildGrowthSystem
             return true;
         }
 
-        ChildRecord? child = children.FirstOrDefault(p =>
-            p.ChildId.Equals(childIdOrName, StringComparison.OrdinalIgnoreCase)
-            || p.ChildName.Equals(childIdOrName, StringComparison.OrdinalIgnoreCase));
+        ChildRecord? child = this.FindChildInCollection(children, childIdOrName!);
         if (child is null)
         {
             message = $"Child '{childIdOrName}' not found.";
@@ -767,13 +907,22 @@ public sealed class ChildGrowthSystem
         }
 
         this.EnsureV3Defaults(child);
+        ChildLifeStage previousStage = child.Stage;
         child.AgeYears = Math.Max(0, years);
         child.AgeDays = Math.Max(child.AgeDays, child.AgeYears * 7);
         child.Stage = this.GetStageForAgeYears(child.AgeYears);
+        if (child.Stage == ChildLifeStage.Adult && string.IsNullOrWhiteSpace(child.AdultNpcName))
+        {
+            child.AdultNpcName = child.RuntimeNpcName;
+        }
+
         this.TrySpawnOrRefreshRuntimeNpc(child);
 
         this.mod.MarkDataDirty($"Child age years force-set ({child.ChildId}).", flushNow: true);
         this.mod.NetSync.BroadcastSnapshotToAll();
+        this.mod.Monitor.Log(
+            $"[PR.System.ChildGrowth] Force age set child={child.ChildId} name={child.ChildName} stage {previousStage} -> {child.Stage}, years={child.AgeYears}.",
+            LogLevel.Info);
         message = $"{child.ChildName} age set to {child.AgeYears} years ({child.Stage}).";
         return true;
     }
@@ -922,9 +1071,7 @@ public sealed class ChildGrowthSystem
             return this.TryFindChild(childIdOrName, out child);
         }
 
-        child = this.mod.ClientSnapshot.Children.FirstOrDefault(c =>
-            c.ChildId.Equals(childIdOrName, StringComparison.OrdinalIgnoreCase)
-            || c.ChildName.Equals(childIdOrName, StringComparison.OrdinalIgnoreCase));
+        child = this.FindChildInCollection(this.mod.ClientSnapshot.Children, childIdOrName);
         return child is not null;
     }
 
@@ -1095,21 +1242,31 @@ public sealed class ChildGrowthSystem
         {
             return;
         }
+
         string targetLocationName = this.ResolveRoutineLocation(child);
         GameLocation? location = Game1.getLocationFromName(targetLocationName) ?? Game1.getFarm();
         if (location is null)
         {
             return;
         }
-        this.PruneChildNpcsToLocation(child, location.NameOrUniqueName);
 
-        string npcName = child.RuntimeNpcName;
-        NPC? existing = location.characters.FirstOrDefault(p =>
-            this.IsRuntimeChildNpc(p)
-            && p.modData.TryGetValue(ChildNpcIdKey, out string? existingId)
-            && string.Equals(existingId, child.ChildId, StringComparison.OrdinalIgnoreCase));
+        string npcName = child.Stage == ChildLifeStage.Adult && !string.IsNullOrWhiteSpace(child.AdultNpcName)
+            ? child.AdultNpcName
+            : child.RuntimeNpcName;
+
+        NPC? existing = this.FindRuntimeChildNpcAnyLocation(child.ChildId);
         if (existing is not null)
         {
+            GameLocation? existingLocation = existing.currentLocation;
+            if (existingLocation is not null
+                && !string.Equals(existingLocation.NameOrUniqueName, location.NameOrUniqueName, StringComparison.OrdinalIgnoreCase))
+            {
+                existingLocation.characters.Remove(existing);
+                location.addCharacter(existing);
+                existing.currentLocation = location;
+            }
+
+            existing.Name = npcName;
             TagRuntimeNpc(existing, child);
             if (!this.IsSafeNpcPosition(location, existing.Position))
             {
@@ -1123,6 +1280,7 @@ public sealed class ChildGrowthSystem
             child.RuntimeNpcSpawned = true;
             child.RoutineZone = location.NameOrUniqueName;
             this.runtimeNpcByChildId[child.ChildId] = npcName;
+            this.PruneChildNpcsToLocation(child, location.NameOrUniqueName);
             return;
         }
 
@@ -1149,6 +1307,7 @@ public sealed class ChildGrowthSystem
             child.RuntimeNpcSpawned = true;
             child.RoutineZone = location.NameOrUniqueName;
             this.runtimeNpcByChildId[child.ChildId] = npc.Name;
+            this.PruneChildNpcsToLocation(child, location.NameOrUniqueName);
         }
         catch (Exception ex)
         {
@@ -1179,6 +1338,7 @@ public sealed class ChildGrowthSystem
             location.addCharacter(npc);
             child.RuntimeNpcSpawned = true;
             child.VisualProfile.IsFallback = true;
+            child.RoutineZone = location.NameOrUniqueName;
         }
         catch
         {
@@ -1314,7 +1474,7 @@ public sealed class ChildGrowthSystem
         return this.IsSafeNpcTile(location, new Vector2((float)Math.Floor(tile.X), (float)Math.Floor(tile.Y)));
     }
 
-    private bool IsSafeNpcTile(GameLocation location, Vector2 tile)
+    private bool IsSafeNpcTile(GameLocation location, Vector2 tile, NPC? ignoreNpc = null)
     {
         if (float.IsNaN(tile.X)
             || float.IsNaN(tile.Y)
@@ -1339,6 +1499,21 @@ public sealed class ChildGrowthSystem
             return false;
         }
 
+        int x = (int)Math.Floor(tile.X);
+        int y = (int)Math.Floor(tile.Y);
+        if (location.isWaterTile(x, y)
+            || location.doesTileHaveProperty(x, y, "Water", "Back") is not null
+            || location.Objects.ContainsKey(new Vector2(x, y))
+            || location.doesTileHaveProperty(x, y, "NoPath", "Back") is not null)
+        {
+            return false;
+        }
+
+        if (location.characters.Any(p => p != ignoreNpc && Vector2.Distance(p.Tile, new Vector2(x, y)) < 0.1f))
+        {
+            return false;
+        }
+
         Location tileLoc = new((int)Math.Floor(tile.X), (int)Math.Floor(tile.Y));
         if (location.isTileLocationOpen(tileLoc))
         {
@@ -1355,10 +1530,10 @@ public sealed class ChildGrowthSystem
         }
     }
 
-    private bool TryFindNearestSafeTile(GameLocation location, Vector2 desiredTile, int maxRadius, out Vector2 safeTile)
+    private bool TryFindNearestSafeTile(GameLocation location, Vector2 desiredTile, int maxRadius, out Vector2 safeTile, NPC? ignoreNpc = null)
     {
         Vector2 clamped = this.ClampTileToLocation(location, desiredTile);
-        if (this.IsSafeNpcTile(location, clamped))
+        if (this.IsSafeNpcTile(location, clamped, ignoreNpc))
         {
             safeTile = clamped;
             return true;
@@ -1379,7 +1554,7 @@ public sealed class ChildGrowthSystem
                     }
 
                     Vector2 candidate = this.ClampTileToLocation(location, new Vector2(centerX + dx, centerY + dy));
-                    if (this.IsSafeNpcTile(location, candidate))
+                    if (this.IsSafeNpcTile(location, candidate, ignoreNpc))
                     {
                         safeTile = candidate;
                         return true;
@@ -1418,10 +1593,78 @@ public sealed class ChildGrowthSystem
 
     private bool TryFindChild(string token, out ChildRecord? child)
     {
-        child = this.mod.HostSaveData.Children.Values.FirstOrDefault(c =>
-            c.ChildId.Equals(token, StringComparison.OrdinalIgnoreCase)
-            || c.ChildName.Equals(token, StringComparison.OrdinalIgnoreCase));
+        child = this.FindChildInCollection(this.mod.HostSaveData.Children.Values, token);
         return child is not null;
+    }
+
+    private NPC? FindRuntimeChildNpcAnyLocation(string childId)
+    {
+        foreach (GameLocation location in Game1.locations)
+        {
+            NPC? found = location.characters.FirstOrDefault(p =>
+                this.IsRuntimeChildNpc(p)
+                && p.modData.TryGetValue(ChildNpcIdKey, out string? existingId)
+                && string.Equals(existingId, childId, StringComparison.OrdinalIgnoreCase));
+            if (found is not null)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
+    private ChildRecord? FindChildInCollection(IEnumerable<ChildRecord> children, string token)
+    {
+        string raw = token?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        string normalized = NormalizeChildToken(raw);
+
+        ChildRecord? exact = children.FirstOrDefault(c =>
+            c.ChildId.Equals(raw, StringComparison.OrdinalIgnoreCase)
+            || c.ChildName.Equals(raw, StringComparison.OrdinalIgnoreCase)
+            || c.RuntimeNpcName.Equals(raw, StringComparison.OrdinalIgnoreCase)
+            || c.AdultNpcName.Equals(raw, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+        {
+            return exact;
+        }
+
+        List<ChildRecord> fuzzy = children
+            .Where(c =>
+                NormalizeChildToken(c.ChildId).Contains(normalized, StringComparison.OrdinalIgnoreCase)
+                || NormalizeChildToken(c.ChildName).Contains(normalized, StringComparison.OrdinalIgnoreCase)
+                || NormalizeChildToken(c.RuntimeNpcName).Contains(normalized, StringComparison.OrdinalIgnoreCase)
+                || NormalizeChildToken(c.AdultNpcName).Contains(normalized, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(c => c.ChildId.Length)
+            .ThenBy(c => c.ChildName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return fuzzy.FirstOrDefault();
+    }
+
+    private static string NormalizeChildToken(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        Span<char> buffer = stackalloc char[value.Length];
+        int written = 0;
+        foreach (char ch in value)
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                buffer[written++] = char.ToLowerInvariant(ch);
+            }
+        }
+
+        return written <= 0 ? string.Empty : new string(buffer[..written]);
     }
 
     private bool IsParentOrHost(ChildRecord child, long actorId)
@@ -1507,7 +1750,7 @@ public sealed class ChildGrowthSystem
 
     private string FormatChildStatus(ChildRecord child)
     {
-        return $"Child {child.ChildName} [{child.ChildId}] age={child.AgeYears}y stage={child.Stage} fedToday={child.IsFedToday} feedProgress={child.FeedingProgress} task={child.AssignedTask} auto={child.AutoMode} worker={child.IsWorkerEnabled} zone={child.RoutineZone}.";
+        return $"Child id={child.ChildId} name={child.ChildName} age={child.AgeYears}y stage={child.Stage} fedToday={child.IsFedToday} feedProgress={child.FeedingProgress} task={child.AssignedTask} auto={child.AutoMode} worker={child.IsWorkerEnabled} zone={child.RoutineZone}.";
     }
 
     private static bool TryParseTaskToken(string token, out ChildTaskType task)

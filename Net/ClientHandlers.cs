@@ -344,6 +344,13 @@ public sealed class ClientHandlers
 
                     break;
                 }
+            case MessageType.NpcSync:
+                {
+                    NpcSyncMessage sync = e.ReadAs<NpcSyncMessage>();
+                    this.mod.DateImmersionSystem.ApplyNpcSyncClient(sync);
+                    this.mod.ChildGrowthSystem.ApplyNpcSyncClient(sync);
+                    break;
+                }
         }
     }
 

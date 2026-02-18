@@ -143,6 +143,33 @@ public sealed class DateEventController
         return true;
     }
 
+    public bool ForceResetDateRuntimeFromLocal(out string message)
+    {
+        if (!Context.IsWorldReady)
+        {
+            message = "World not ready.";
+            return false;
+        }
+
+        if (this.mod.IsHostPlayer && this.activeHost is not null)
+        {
+            this.EndDateHost(success: false, "debug_reset");
+        }
+
+        if (this.activeLocal is not null)
+        {
+            this.CleanupLocalDateActors();
+            Game1.player.CanMove = true;
+            Game1.player.UsingTool = false;
+            Game1.player.canReleaseTool = true;
+            this.activeLocal = null;
+        }
+
+        message = "Date event runtime state reset.";
+        this.mod.Monitor.Log("[PR.System.DateEvent] Debug reset of map date runtime state completed.", LogLevel.Info);
+        return true;
+    }
+
     public bool DumpMarkersFromLocal(out string message)
     {
         if (!Context.IsWorldReady)
@@ -728,11 +755,16 @@ public sealed class DateEventController
         foreach (DateEventNpcPlacementMessage placement in placements)
         {
             NPC? npc = location.characters.FirstOrDefault(p => p.Name.Equals(placement.NpcName, StringComparison.OrdinalIgnoreCase));
-            bool created = false;
             if (npc is null)
             {
-                this.mod.Monitor.Log($"[PR.System.DateEvent] NPC '{placement.NpcName}' not present in map; skipped placement.", LogLevel.Warn);
-                continue;
+                npc = this.TrySpawnTemporaryDateNpc(location, placement);
+                if (npc is null)
+                {
+                    this.mod.Monitor.Log($"[PR.System.DateEvent] NPC '{placement.NpcName}' could not be created for placement '{placement.SpotName}'.", LogLevel.Warn);
+                    continue;
+                }
+
+                this.activeLocal?.TempNpcNames.Add(npc.Name);
             }
 
             npc.currentLocation = location;
@@ -740,8 +772,40 @@ public sealed class DateEventController
             npc.Position = new Vector2(placement.TileX, placement.TileY) * 64f;
             npc.FacingDirection = placement.FacingDirection;
             npc.Speed = 0;
+        }
+    }
 
-            _ = created;
+    private NPC? TrySpawnTemporaryDateNpc(GameLocation location, DateEventNpcPlacementMessage placement)
+    {
+        try
+        {
+            AnimatedSprite sprite = new($"Characters\\{placement.NpcName}");
+            Texture2D portrait = Game1.content.Load<Texture2D>($"Portraits\\{placement.NpcName}");
+            string runtimeName = $"PR_DateMap_{placement.NpcName}_{placement.SpotName}_{this.activeLocal?.SessionId ?? "local"}";
+            NPC npc = new(
+                sprite,
+                new Vector2(placement.TileX, placement.TileY) * 64f,
+                location.NameOrUniqueName,
+                placement.FacingDirection,
+                runtimeName,
+                false,
+                portrait)
+            {
+                displayName = placement.NpcName
+            };
+
+            location.addCharacter(npc);
+            this.mod.Monitor.Log(
+                $"[PR.System.DateEvent] Spawned temporary date NPC '{runtimeName}' from template '{placement.NpcName}' at ({placement.TileX},{placement.TileY}).",
+                LogLevel.Trace);
+            return npc;
+        }
+        catch (Exception ex)
+        {
+            this.mod.Monitor.Log(
+                $"[PR.System.DateEvent] Failed to spawn temporary date NPC from '{placement.NpcName}': {ex.Message}",
+                LogLevel.Warn);
+            return null;
         }
     }
 

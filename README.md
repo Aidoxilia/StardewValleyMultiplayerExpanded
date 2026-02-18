@@ -138,7 +138,9 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
 - `pr.propose <player>`
 - `pr.accept` / `pr.reject`
 - `pr.status [player]`
-- `pr.date.start <player>` (starts Town immersive date)
+- `pr.date.start <player>` (force-start Town immersive date)
+- `pr.date.start <dateId> [player]` (host force-start map date; auto-picks online partner if omitted)
+- `pr.date.end` (force-end active immersive + map date runtime)
 - `pr.marry.propose <player>`
 - `pr.marry.accept` / `pr.marry.reject`
 - `pr.marry.force <player>` / `force_marriage <player>` (host cheat)
@@ -163,6 +165,12 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
 - `pr.date.debug.spawnstands <town|beach|forest>` (host debug)
 - `pr.date.debug.cleanup`
 - `pr.date.immersive.retry`
+- `pr.date.reset_state` (host debug force reset: active sessions + daily date lockouts)
+- `pr.date.asset_test` / `date_asset_test` (host debug)
+- `pr.date.warp_test` / `date_warp_test` (host debug: must warp to `Date_Beach`)
+- `pr.date.markers_dump` / `date_markers_dump` (host debug)
+- `pr.vendor.shop.open <ice|roses|clothing> [itemId] [offer]` (debug vendor buy/offer path)
+- `romance help dev` (or `romance_help_dev`) to print the full dev command list
 - `pr.hands.request <player>`
 - `pr.hands.accept`
 - `pr.hands.reject`
@@ -176,13 +184,24 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
 - `pr.child.interact <childIdOrName> <care|play|feed>`
 - `pr.child.status [childIdOrName]`
 - `pr.child.age.set <childIdOrName> <years>`
+- `pr.child.age.set <years>` (fallback when exactly one child exists)
 - `pr.child.task <childIdOrName> <auto|water|feed|collect|harvest|ship|fish|stop>`
+- `pr.child.work.force <childIdOrName>`
+- `pr.child.job.set <childIdOrName> <none|forager|crabpot|rancher|artisan|geologist>`
+- `pr.child.dump <childIdOrName>`
+- `pr.sim.morning` (host debug: simulate DayStarted systems + 06:10 pass)
 
 ### Extra debug commands
 
 - `romance_status` (host only)
 - `children_list` (host only)
 - `synergy_test` (host only)
+- `romance help dev` (full exhaustive dev command help)
+
+### Debug dummy partner (solo)
+
+- `pr.date.immersive.start DummyPartner <town|beach|forest>` force-starts a debug session in solo host mode.
+- This uses a logical dummy partner flow for testing and does not require a real second client.
 
 ### Child Interaction UX (in-game)
 
@@ -223,6 +242,13 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
 3. Verify temporary stands and temporary NPCs appear in location.
 4. End with `pr.date.immersive.end` or wait until `ImmersiveDateEndTime`.
 5. Verify cleanup: no lingering `PR_Date_...` NPCs/stands and session cleared.
+6. Run map checks:
+
+- `pr.date.asset_test`
+- `pr.date.warp_test`
+- `pr.date.markers_dump`
+
+7. If any previous date state blocks testing, run `pr.date.reset_state` and retry immediately.
 
 ### 2) Stand buy/offer + sync + anti-dup
 

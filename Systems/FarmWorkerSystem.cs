@@ -1,6 +1,7 @@
 using Microsoft.Xna.Framework;
 using PlayerRomance.Data;
 using PlayerRomance.Net;
+using StardewModdingAPI;
 using StardewValley;
 using StardewValley.TerrainFeatures;
 
@@ -103,6 +104,104 @@ public sealed class FarmWorkerSystem
         return $"Worker run day {day}: workers={workers.Count}, watered={totalWatered}, fed={totalFed}, collected={totalCollected}, harvested={totalHarvested}, shipped={totalShipped}, fish={totalFish}.";
     }
 
+    public bool RunWorkerForChildDebug(string childToken, out string message)
+    {
+        if (!Context.IsWorldReady)
+        {
+            message = "World not ready.";
+            return false;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            message = "Only host can force child work.";
+            return false;
+        }
+
+        ChildRecord? child = this.FindChildByToken(childToken);
+        if (child is null)
+        {
+            message = $"Child '{childToken}' not found.";
+            return false;
+        }
+
+        Farm? farm = Game1.getFarm();
+        if (farm is null)
+        {
+            message = "Farm location unavailable.";
+            return false;
+        }
+
+        int watered = 0;
+        int fed = 0;
+        int collected = 0;
+        int harvested = 0;
+        int shipped = 0;
+        int fishCaught = 0;
+        foreach (ChildTaskType task in this.GetTasksToRunDebug(child))
+        {
+            switch (task)
+            {
+                case ChildTaskType.Water:
+                    watered += this.RunWaterTask(farm, maxTiles: 18);
+                    break;
+                case ChildTaskType.FeedAnimals:
+                    fed += this.RunFeedAnimalsTask(farm, maxAnimals: 8);
+                    break;
+                case ChildTaskType.Collect:
+                    {
+                        (int nowCollected, int nowShipped) = this.RunCollectTask(farm, maxAnimals: 6);
+                        collected += nowCollected;
+                        shipped += nowShipped;
+                        break;
+                    }
+                case ChildTaskType.Harvest:
+                    harvested += this.RunHarvestTask(farm, maxTiles: 16);
+                    break;
+                case ChildTaskType.Ship:
+                    shipped += this.RunShipTask(farm, maxItems: 4);
+                    break;
+                case ChildTaskType.Fish:
+                    fishCaught += this.RunFishTask(farm, child);
+                    break;
+            }
+        }
+
+        child.LastWorkedDay = this.mod.GetCurrentDayNumber();
+        this.mod.MarkDataDirty($"Debug forced worker run for child {child.ChildId}.", flushNow: true);
+        this.mod.NetSync.BroadcastSnapshotToAll();
+        message =
+            $"Forced work for {child.ChildName}: watered={watered}, fed={fed}, collected={collected}, harvested={harvested}, shipped={shipped}, fish={fishCaught}.";
+        return true;
+    }
+
+    public bool GetChildWorkWhereDebug(string childToken, out string message)
+    {
+        if (!Context.IsWorldReady)
+        {
+            message = "World not ready.";
+            return false;
+        }
+
+        if (!this.mod.IsHostPlayer)
+        {
+            message = "Only host can query child work location.";
+            return false;
+        }
+
+        ChildRecord? child = this.FindChildByToken(childToken);
+        if (child is null)
+        {
+            message = $"Child '{childToken}' not found.";
+            return false;
+        }
+
+        string runtimeName = string.IsNullOrWhiteSpace(child.RuntimeNpcName) ? "(none)" : child.RuntimeNpcName;
+        string zone = string.IsNullOrWhiteSpace(child.RoutineZone) ? "(unknown)" : child.RoutineZone;
+        message = $"Child {child.ChildName} [{child.ChildId}] stage={child.Stage} task={(child.AutoMode ? "auto" : child.AssignedTask.ToString())} worker={child.IsWorkerEnabled} zone={zone} runtimeNpc={runtimeName} lastWorkDay={child.LastWorkedDay}.";
+        return true;
+    }
+
     public void PublishReport(string report)
     {
         this.mod.LastFarmWorkReport = report;
@@ -199,6 +298,66 @@ public sealed class FarmWorkerSystem
                 yield return ChildTaskType.Fish;
             }
 
+            yield break;
+        }
+
+        yield return worker.AssignedTask;
+    }
+
+    private ChildRecord? FindChildByToken(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return null;
+        }
+
+        string raw = token.Trim();
+        string normalized = NormalizeToken(raw);
+        return this.mod.HostSaveData.Children.Values.FirstOrDefault(c =>
+                c.ChildId.Equals(raw, StringComparison.OrdinalIgnoreCase)
+                || c.ChildName.Equals(raw, StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrWhiteSpace(c.RuntimeNpcName) && c.RuntimeNpcName.Equals(raw, StringComparison.OrdinalIgnoreCase)))
+            ?? this.mod.HostSaveData.Children.Values.FirstOrDefault(c =>
+                NormalizeToken(c.ChildId).Contains(normalized, StringComparison.OrdinalIgnoreCase)
+                || NormalizeToken(c.ChildName).Contains(normalized, StringComparison.OrdinalIgnoreCase)
+                || NormalizeToken(c.RuntimeNpcName).Contains(normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeToken(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        Span<char> buffer = stackalloc char[value.Length];
+        int written = 0;
+        foreach (char ch in value)
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                buffer[written++] = char.ToLowerInvariant(ch);
+            }
+        }
+
+        return written <= 0 ? string.Empty : new string(buffer[..written]);
+    }
+
+    private IEnumerable<ChildTaskType> GetTasksToRunDebug(ChildRecord worker)
+    {
+        if (worker.AssignedTask == ChildTaskType.Stop)
+        {
+            yield break;
+        }
+
+        if (worker.AutoMode || worker.AssignedTask == ChildTaskType.Auto)
+        {
+            yield return ChildTaskType.Water;
+            yield return ChildTaskType.FeedAnimals;
+            yield return ChildTaskType.Collect;
+            yield return ChildTaskType.Harvest;
+            yield return ChildTaskType.Ship;
+            yield return ChildTaskType.Fish;
             yield break;
         }
 

@@ -1,11 +1,16 @@
 using Microsoft.Xna.Framework;
 using PlayerRomance.Data;
 using StardewValley;
+using StardewValley.Buffs;
 
 namespace PlayerRomance.Systems;
 
 public sealed class CoupleSynergySystem
 {
+    private const string SynergyAuraBuffId = "PlayerRomance.Synergy.Aura";
+    private const string SynergyKissBuffId = "PlayerRomance.Synergy.Kiss";
+    private const string SynergyCombatBuffId = "PlayerRomance.Synergy.Combat";
+
     private readonly ModEntry mod;
     private readonly Random random = new();
     private readonly Dictionary<string, int> lastAuraSecondByPair = new(StringComparer.OrdinalIgnoreCase);
@@ -209,8 +214,17 @@ public sealed class CoupleSynergySystem
         }
 
         float gain = Math.Clamp(1f - this.mod.Config.LoveAuraStaminaMultiplier, 0.05f, 2f);
-        TryRestoreStamina(a, gain);
-        TryRestoreStamina(b, gain);
+        bool aChanged = TryRestoreStamina(a, gain);
+        bool bChanged = TryRestoreStamina(b, gain);
+        if (aChanged)
+        {
+            this.ApplySynergyBuffIcon(a, SynergyAuraBuffId, "Love Aura", "Nearby partner synergy");
+        }
+
+        if (bChanged)
+        {
+            this.ApplySynergyBuffIcon(b, SynergyAuraBuffId, "Love Aura", "Nearby partner synergy");
+        }
     }
 
     private void TryApplyRegeneratorKissHost(RelationshipRecord relation, Farmer a, Farmer b, float distance)
@@ -233,6 +247,9 @@ public sealed class CoupleSynergySystem
         {
             return;
         }
+
+        this.ApplySynergyBuffIcon(a, SynergyKissBuffId, "Regenerator Kiss", "Daily partner boost");
+        this.ApplySynergyBuffIcon(b, SynergyKissBuffId, "Regenerator Kiss", "Daily partner boost");
 
         this.TryPlayEmote(a, 20);
         this.TryPlayEmote(b, 20);
@@ -261,8 +278,40 @@ public sealed class CoupleSynergySystem
             return;
         }
 
-        TryRestoreStamina(a, 1f);
-        TryRestoreStamina(b, 1f);
+        bool aChanged = TryRestoreStamina(a, 1f);
+        bool bChanged = TryRestoreStamina(b, 1f);
+        if (aChanged)
+        {
+            this.ApplySynergyBuffIcon(a, SynergyCombatBuffId, "Combat Duo", "Team combat rhythm");
+        }
+
+        if (bChanged)
+        {
+            this.ApplySynergyBuffIcon(b, SynergyCombatBuffId, "Combat Duo", "Team combat rhythm");
+        }
+    }
+
+    private void ApplySynergyBuffIcon(Farmer farmer, string buffId, string source, string description)
+    {
+        try
+        {
+            Buff iconBuff = new(
+                buffId,
+                source,
+                source,
+                4200,
+                Game1.buffsIcons,
+                0,
+                new BuffEffects(),
+                false,
+                description,
+                string.Empty);
+            farmer.applyBuff(iconBuff);
+        }
+        catch (Exception ex)
+        {
+            this.mod.Monitor.Log($"[PR.System.Synergy] Failed to apply synergy icon buff '{buffId}': {ex.Message}", StardewModdingAPI.LogLevel.Trace);
+        }
     }
 
     private IEnumerable<(RelationshipRecord relation, Farmer a, Farmer b)> GetOnlineActivePairs()
