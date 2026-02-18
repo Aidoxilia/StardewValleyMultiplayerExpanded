@@ -23,13 +23,15 @@ namespace PlayerRomance.UI
 
         // --- Layout Panels ---
         private Rectangle topPanel;      // Status & Player Info
-        private Rectangle leftPanel;     // Categories
+        private Rectangle leftPanel;     // Categories (Icons only)
         private Rectangle contentPanel;  // Action Grid
+
+        private bool _hasInitLayout = false;
 
         // --- Categories & Actions ---
         private enum ActionCategory
         {
-            Romance,
+            Home,
             Dates,
             Intimacy
         }
@@ -39,6 +41,7 @@ namespace PlayerRomance.UI
             public string Label;
             public ActionCategory Category;
             public Rectangle Bounds;
+            public Rectangle IconSource;
         }
 
         private sealed class ActionButton
@@ -47,14 +50,15 @@ namespace PlayerRomance.UI
             public ActionCategory Category;
             public Func<(bool enabled, string disabledReason)> State;
             public Action Execute;
-            public Rectangle Bounds; // Calculated dynamically
+            public Rectangle Bounds;
         }
 
         private readonly List<CategoryComponent> categories = new();
         private readonly List<ActionButton> allActions = new();
-        private ActionCategory currentCategory = ActionCategory.Romance;
+        private ActionCategory currentCategory = ActionCategory.Home;
 
         private string hoverText = string.Empty;
+        private string categoryHoverText = string.Empty;
 
         public RomanceHubMenu(ModEntry mod)
             : base(0, 0, 0, 0, true)
@@ -124,12 +128,12 @@ namespace PlayerRomance.UI
                 this.nextPlayerButton.bounds = new Rectangle(portraitX + portraitSize, arrowY, 48, 44);
             }
 
-            // 2. Bottom Area (Split Left/Right)
+            // 2. Bottom Area
             int bottomY = this.topPanel.Bottom + 16;
             int bottomHeight = (this.yPositionOnScreen + this.height) - bottomY - padding;
 
             // Left Panel (Categories)
-            int leftWidth = 240;
+            int leftWidth = 100;
             this.leftPanel = new Rectangle(
                 this.topPanel.X,
                 bottomY,
@@ -144,21 +148,40 @@ namespace PlayerRomance.UI
                 bottomHeight);
 
             // Update Category Button Rects
-            int catH = 64;
-            int catY = this.leftPanel.Y + 16;
+            int catSize = 64;
+            int catY = this.leftPanel.Y + 32;
             foreach (var cat in this.categories)
             {
-                cat.Bounds = new Rectangle(this.leftPanel.X + 12, catY, this.leftPanel.Width - 24, catH);
-                catY += catH + 12;
+                int catX = this.leftPanel.X + (this.leftPanel.Width - catSize) / 2;
+                cat.Bounds = new Rectangle(catX, catY, catSize, catSize);
+                catY += catSize + 24;
             }
         }
 
         private void InitializeCategories()
         {
             this.categories.Clear();
-            this.categories.Add(new CategoryComponent { Label = "Romance", Category = ActionCategory.Romance });
-            this.categories.Add(new CategoryComponent { Label = "Dates", Category = ActionCategory.Dates });
-            this.categories.Add(new CategoryComponent { Label = "Intimacy", Category = ActionCategory.Intimacy });
+
+            this.categories.Add(new CategoryComponent
+            {
+                Label = "Home",
+                Category = ActionCategory.Home,
+                IconSource = new Rectangle(211, 428, 7, 6)
+            });
+
+            this.categories.Add(new CategoryComponent
+            {
+                Label = "Dates",
+                Category = ActionCategory.Dates,
+                IconSource = new Rectangle(366, 373, 16, 16)
+            });
+
+            this.categories.Add(new CategoryComponent
+            {
+                Label = "Intimacy",
+                Category = ActionCategory.Intimacy,
+                IconSource = new Rectangle(32, 32, 32, 32)
+            });
         }
 
         public override void receiveLeftClick(int x, int y, bool playSound = true)
@@ -170,7 +193,6 @@ namespace PlayerRomance.UI
                 return;
             }
 
-            // Player Cycle
             if (this.prevPlayerButton.containsPoint(x, y))
             {
                 this.CyclePlayer(-1);
@@ -184,7 +206,19 @@ namespace PlayerRomance.UI
                 return;
             }
 
-            // Actions Click
+            foreach (var cat in this.categories)
+            {
+                if (cat.Bounds.Contains(x, y))
+                {
+                    if (this.currentCategory != cat.Category)
+                    {
+                        this.currentCategory = cat.Category;
+                        Game1.playSound("smallSelect");
+                    }
+                    return;
+                }
+            }
+
             var activeActions = this.allActions.Where(a => a.Category == this.currentCategory).ToList();
             foreach (var action in activeActions)
             {
@@ -208,24 +242,21 @@ namespace PlayerRomance.UI
         public override void performHoverAction(int x, int y)
         {
             this.hoverText = "";
+            this.categoryHoverText = "";
+
             this.closeButton.tryHover(x, y);
             this.prevPlayerButton.tryHover(x, y);
             this.nextPlayerButton.tryHover(x, y);
 
-            // Hover Category -> Switch View
-            if (this.leftPanel.Contains(x, y))
+            foreach (var cat in this.categories)
             {
-                foreach (var cat in this.categories)
+                if (cat.Bounds.Contains(x, y))
                 {
-                    if (cat.Bounds.Contains(x, y))
-                    {
-                        this.currentCategory = cat.Category;
-                        break;
-                    }
+                    this.categoryHoverText = cat.Label;
+                    return;
                 }
             }
 
-            // Hover Action -> Tooltip
             var activeActions = this.allActions.Where(a => a.Category == this.currentCategory).ToList();
             foreach (var action in activeActions)
             {
@@ -240,52 +271,86 @@ namespace PlayerRomance.UI
 
         public override void draw(SpriteBatch b)
         {
-            // Dim background
-            b.Draw(Game1.fadeToBlackRect, Game1.graphics.GraphicsDevice.Viewport.Bounds, Color.Black * 0.6f);
+            // 1. Initialisation (Correctif position 0,0)
+            if (!this._hasInitLayout || (this.xPositionOnScreen == 0 && this.yPositionOnScreen == 0))
+            {
+                this.UpdateLayout();
+                this._hasInitLayout = true;
+            }
 
-            // Main Background
+            // Variables pour stocker la position du bouton survolé
+            Rectangle? hoveredCatBounds = null;
+            string hoveredCatLabel = "";
+            int mouseX = Game1.getMouseX();
+            int mouseY = Game1.getMouseY();
+
+            // 2. Fond noir et boite de dialogue
+            b.Draw(Game1.fadeToBlackRect, Game1.graphics.GraphicsDevice.Viewport.Bounds, Color.Black * 0.6f);
             Game1.drawDialogueBox(this.xPositionOnScreen, this.yPositionOnScreen, this.width, this.height, false, true);
 
             this.closeButton.draw(b);
 
-            // --- Draw Top Panel (Status) ---
+            // 3. Panneau du haut
             this.DrawTopPanel(b);
 
-            // --- Draw Left Panel (Categories) ---
+            // 4. Panneau de gauche (Icônes)
             IClickableMenu.drawTextureBox(b, this.leftPanel.X, this.leftPanel.Y, this.leftPanel.Width, this.leftPanel.Height, Color.White);
+
             foreach (var cat in this.categories)
             {
                 bool isSelected = cat.Category == this.currentCategory;
 
-                // Draw selection highlight
+                // Fond du bouton
+                IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 396, 15, 15), cat.Bounds.X, cat.Bounds.Y, cat.Bounds.Width, cat.Bounds.Height, isSelected ? Color.White : Color.Gray * 0.8f, 4f, false);
+
+                // Contour de sélection
                 if (isSelected)
-                    IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(375, 357, 3, 3), cat.Bounds.X, cat.Bounds.Y, cat.Bounds.Width, cat.Bounds.Height, Color.White, 4f, false);
+                    IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(375, 357, 3, 3), cat.Bounds.X - 4, cat.Bounds.Y - 4, cat.Bounds.Width + 8, cat.Bounds.Height + 8, Color.Orange, 4f, false);
 
-                // Draw Label
-                Vector2 textSize = Game1.smallFont.MeasureString(cat.Label);
-                Vector2 textPos = new Vector2(
-                    cat.Bounds.X + (cat.Bounds.Width - textSize.X) / 2,
-                    cat.Bounds.Y + (cat.Bounds.Height - textSize.Y) / 2);
+                // Icône
+                float scale = 4f;
+                Vector2 iconPos = new Vector2(
+                    cat.Bounds.X + (cat.Bounds.Width - (cat.IconSource.Width * scale)) / 2,
+                    cat.Bounds.Y + (cat.Bounds.Height - (cat.IconSource.Height * scale)) / 2
+                );
 
-                Color textColor = isSelected ? Game1.textColor : Game1.textShadowColor;
-                Utility.drawTextWithShadow(b, cat.Label, Game1.smallFont, textPos, textColor);
+                b.Draw(Game1.mouseCursors, iconPos, cat.IconSource, Color.White, 0f, Vector2.Zero, scale, SpriteEffects.None, 0.9f);
+
+                // --- DÉTECTION DU SURVOL PRÉCIS ---
+                // Si la souris est sur ce bouton spécifique, on garde ses infos pour la fin
+                if (cat.Bounds.Contains(mouseX, mouseY))
+                {
+                    hoveredCatBounds = cat.Bounds;
+                    hoveredCatLabel = cat.Label;
+                }
             }
 
-            // --- Draw Content Panel (Actions) ---
+            // 5. Panneau de contenu (Actions)
             this.DrawActionGrid(b);
 
-            // Tooltip
-            if (!string.IsNullOrEmpty(this.hoverText))
+            // 6. DESSIN DES TOOLTIPS (Au-dessus de tout)
+
+            if (hoveredCatBounds.HasValue && !string.IsNullOrEmpty(hoveredCatLabel))
             {
+                // Affiche le label DYNAMIQUEMENT à côté du bouton survolé
+                // X = Droite du bouton + 12 pixels de marge
+                // Y = Haut du bouton + un petit décalage pour centrer visuellement le texte
+                IClickableMenu.drawHoverText(b, hoveredCatLabel, Game1.smallFont,
+                    overrideX: hoveredCatBounds.Value.Right + 12,
+                    overrideY: hoveredCatBounds.Value.Y + 8);
+            }
+            else if (!string.IsNullOrEmpty(this.hoverText))
+            {
+                // Tooltip standard pour les actions (suit la souris ou en bas à gauche)
                 IClickableMenu.drawHoverText(b, this.hoverText, Game1.smallFont);
             }
 
+            // 7. Souris
             this.drawMouse(b);
         }
 
         private void DrawTopPanel(SpriteBatch b)
         {
-            // Panel Background (slightly darker/grouped)
             IClickableMenu.drawTextureBox(b, this.topPanel.X, this.topPanel.Y, this.topPanel.Width, this.topPanel.Height, Color.White);
 
             if (this.playerIds.Count == 0)
@@ -294,32 +359,26 @@ namespace PlayerRomance.UI
                 return;
             }
 
-            // Player Selection Controls
             this.prevPlayerButton.draw(b);
             this.nextPlayerButton.draw(b);
 
-            // Portrait
             Farmer target = this.mod.FindFarmerById(this.selectedPlayerId, true);
             int portraitSize = 128;
             int portraitX = this.topPanel.X + 32;
             int portraitY = this.topPanel.Y + (this.topPanel.Height - portraitSize) / 2;
 
-            // Draw Portrait background
             IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 396, 15, 15), portraitX, portraitY, portraitSize, portraitSize, Color.White, 4f, false);
             if (target != null)
             {
                 target.FarmerRenderer.drawMiniPortrat(b, new Vector2(portraitX + 12, portraitY + 12), 0.0001f, 4f, 0, target);
             }
 
-            // Info Text Area
             int infoX = portraitX + portraitSize + 64;
             int infoY = this.topPanel.Y + 24;
             string name = target?.Name ?? "Unknown";
 
-            // Title / Name
             Utility.drawTextWithShadow(b, name, Game1.dialogueFont, new Vector2(infoX, infoY), Game1.textColor);
 
-            // Relationship Stats
             RelationshipRecord relation = this.mod.DatingSystem.GetRelationship(this.mod.LocalPlayerId, this.selectedPlayerId);
             string state = relation?.State.ToString() ?? "None";
             int hearts = relation?.GetHeartLevel(this.mod.Config.HeartPointsPerHeart, this.mod.Config.MaxHearts) ?? 0;
@@ -342,7 +401,8 @@ namespace PlayerRomance.UI
         {
             var actions = this.allActions.Where(a => a.Category == this.currentCategory).ToList();
 
-            // Grid Layout calculation
+            if (actions.Count == 0) return;
+
             int cols = 2;
             int gap = 12;
             int btnW = (this.contentPanel.Width - (gap * (cols + 1))) / cols;
@@ -354,24 +414,18 @@ namespace PlayerRomance.UI
             for (int i = 0; i < actions.Count; i++)
             {
                 var action = actions[i];
-
-                // Update bounds for hit detection
                 action.Bounds = new Rectangle(currentX, currentY, btnW, btnH);
 
-                // Draw Button
                 (bool enabled, _) = action.State();
                 float alpha = enabled ? 1f : 0.6f;
                 Color color = enabled ? Color.White : Color.Gray;
 
-                // Hover effect
                 if (enabled && action.Bounds.Contains(Game1.getMouseX(), Game1.getMouseY()))
                     color = Color.Wheat;
 
                 IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), action.Bounds.X, action.Bounds.Y, action.Bounds.Width, action.Bounds.Height, color, 4f, false);
 
-                // Center Text
                 Vector2 textSize = Game1.smallFont.MeasureString(action.Label);
-                // Simple wrapping or fitting
                 float scale = 1f;
                 if (textSize.X > action.Bounds.Width - 20) scale = (action.Bounds.Width - 20) / textSize.X;
 
@@ -381,7 +435,6 @@ namespace PlayerRomance.UI
 
                 Utility.drawTextWithShadow(b, action.Label, Game1.smallFont, textPos, Game1.textColor * alpha, scale);
 
-                // Grid Flow
                 if ((i + 1) % cols == 0)
                 {
                     currentX = this.contentPanel.X + gap;
@@ -399,14 +452,11 @@ namespace PlayerRomance.UI
         private void CyclePlayer(int direction)
         {
             if (this.playerIds.Count <= 1) return;
-
             int index = this.playerIds.IndexOf(this.selectedPlayerId);
             if (index == -1) index = 0;
-
             index += direction;
             if (index >= this.playerIds.Count) index = 0;
             if (index < 0) index = this.playerIds.Count - 1;
-
             this.selectedPlayerId = this.playerIds[index];
         }
 
@@ -414,22 +464,16 @@ namespace PlayerRomance.UI
         {
             this.playerIds.Clear();
             HashSet<long> unique = new();
-
-            // Add Online Farmers
             foreach (Farmer farmer in Game1.getOnlineFarmers().Where(p => p.UniqueMultiplayerID != this.mod.LocalPlayerId))
             {
                 if (unique.Add(farmer.UniqueMultiplayerID))
                     this.playerIds.Add(farmer.UniqueMultiplayerID);
             }
-
-            // Add Connected Peers (in case not in onlineFarmers list yet)
             foreach (var peer in this.mod.Helper.Multiplayer.GetConnectedPlayers())
             {
                 if (peer.PlayerID != this.mod.LocalPlayerId && unique.Add(peer.PlayerID))
                     this.playerIds.Add(peer.PlayerID);
             }
-
-            // Ensure selection is valid
             if (this.playerIds.Count > 0 && !this.playerIds.Contains(this.selectedPlayerId))
             {
                 this.selectedPlayerId = this.playerIds[0];
@@ -444,16 +488,12 @@ namespace PlayerRomance.UI
             {
                 return $"Date ({immersive.Location})";
             }
-
             if (this.mod.HoldingHandsSystem.IsHandsActiveBetween(this.mod.LocalPlayerId, targetPlayerId))
             {
                 return "Holding hands";
             }
-
             return this.mod.CarrySystem.IsCarryActiveBetween(this.mod.LocalPlayerId, targetPlayerId) ? "Being carried" : "None";
         }
-
-        // --- Logic Actions State Checkers (Copied from original) ---
 
         private bool TryGetSelectedTarget(out Farmer? target)
         {
@@ -466,16 +506,15 @@ namespace PlayerRomance.UI
         private void BuildActions()
         {
             this.allActions.Clear();
-
-            // Romance Category
             void Add(string label, ActionCategory cat, Func<(bool, string)> state, Action exec)
             {
                 this.allActions.Add(new ActionButton { Label = label, Category = cat, State = state, Execute = exec });
             }
 
-            Add("Dating Proposal", ActionCategory.Romance, this.GetDatingState, () => this.RunResult(this.mod.DatingSystem.RequestDatingFromLocal(this.selectedPlayerId.ToString(), out string msg), msg, "[PR]"));
-            Add("Marriage Proposal", ActionCategory.Romance, this.GetMarriageState, () => this.RunResult(this.mod.MarriageSystem.RequestMarriageFromLocal(this.selectedPlayerId.ToString(), out string msg), msg, "[PR]"));
-            Add("Try For Baby", ActionCategory.Romance, this.GetPregnancyState, () => this.RunResult(this.mod.PregnancySystem.RequestTryForBabyFromLocal(this.selectedPlayerId.ToString(), out string msg), msg, "[PR]"));
+            // Home Category
+            Add("Dating Proposal", ActionCategory.Home, this.GetDatingState, () => this.RunResult(this.mod.DatingSystem.RequestDatingFromLocal(this.selectedPlayerId.ToString(), out string msg), msg, "[PR]"));
+            Add("Marriage Proposal", ActionCategory.Home, this.GetMarriageState, () => this.RunResult(this.mod.MarriageSystem.RequestMarriageFromLocal(this.selectedPlayerId.ToString(), out string msg), msg, "[PR]"));
+            Add("Try For Baby", ActionCategory.Home, this.GetPregnancyState, () => this.RunResult(this.mod.PregnancySystem.RequestTryForBabyFromLocal(this.selectedPlayerId.ToString(), out string msg), msg, "[PR]"));
 
             // Dates Category
             Add("Start Date (Town)", ActionCategory.Dates, () => this.GetImmersiveDateState(ImmersiveDateLocation.Town), () => this.RunResult(this.mod.DateImmersionSystem.StartImmersiveDateFromLocal(this.selectedPlayerId.ToString(), ImmersiveDateLocation.Town, out string msg), msg, "[PR]"));
@@ -496,8 +535,7 @@ namespace PlayerRomance.UI
             else this.mod.Notifier.NotifyWarn(message, category);
         }
 
-        // --- State Checkers (Preserved Logic) ---
-
+        // --- State Checkers ---
         private (bool, string) GetDatingState()
         {
             if (!this.TryGetSelectedTarget(out _)) return (false, "Select player.");

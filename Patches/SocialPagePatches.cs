@@ -23,7 +23,10 @@ namespace PlayerRomance.Patches
         // Textures Sources exactes de Stardew Valley
         private static readonly Rectangle HeartFull = new(218, 428, 7, 6);
         private static readonly Rectangle HeartEmpty = new(211, 428, 7, 6);
+
+        // Cadeaux
         private static readonly Rectangle GiftBoxEmpty = new(227, 425, 9, 9);
+        private static readonly Rectangle GiftBoxFilled = new(236, 425, 9, 9);
         private static readonly Rectangle GiftIconSource = new(229, 410, 14, 14);
 
         public static void Initialize(ModEntry mod)
@@ -86,7 +89,6 @@ namespace PlayerRomance.Patches
                 foreach (var relation in relationships)
                 {
                     long partnerId = relation.GetOther(Mod.LocalPlayerId);
-                    // Le partenaire sera trouvé même s'il est hors-ligne grâce à getAllFarmers
                     Farmer partner = Mod.FindFarmerById(partnerId, true);
                     if (partner != null)
                     {
@@ -119,9 +121,25 @@ namespace PlayerRomance.Patches
                 if (charField.GetValue(entry) is Farmer farmer && farmer.UniqueMultiplayerID != Mod.LocalPlayerId)
                 {
                     int slotPosition = Mod.Helper.Reflection.GetField<int>(__instance, "slotPosition").GetValue();
-                    int y = __instance.yPositionOnScreen + 100 + (i - slotPosition) * 112;
-                    int x = __instance.xPositionOnScreen + 32;
+
+                    // --- CORRECTIF POSITION ---
+                    int baseX = __instance.xPositionOnScreen;
+                    int baseY = __instance.yPositionOnScreen;
+
+                    // Si la position est 0 (bug), on tente de récupérer celle du menu parent (GameMenu)
+                    if (baseX == 0 && baseY == 0 && Game1.activeClickableMenu != null)
+                    {
+                        baseX = Game1.activeClickableMenu.xPositionOnScreen;
+                        baseY = Game1.activeClickableMenu.yPositionOnScreen;
+                    }
+
+                    // Calcul final avec sécurité
+                    int y = baseY + 100 + (i - slotPosition) * 112;
+                    int x = baseX + 32;
                     int width = __instance.width - 64;
+
+                    // Sécurité supplémentaire : si width est incorrect (trop petit), on met une valeur par défaut
+                    if (width < 100) width = 800; // Largeur standard approximative d'une page
 
                     var relation = Mod.DatingSystem.GetRelationship(Mod.LocalPlayerId, farmer.UniqueMultiplayerID);
                     if (relation != null)
@@ -163,29 +181,22 @@ namespace PlayerRomance.Patches
 
         private static void DrawPlayerRow(SpriteBatch b, Farmer farmer, RelationshipRecord relation, int x, int y, int width)
         {
-            // --- 1. DÉTECTION HOVER ---
             Rectangle rowBounds = new Rectangle(x, y, width, 112);
             bool isHovered = rowBounds.Contains(Game1.getMouseX(), Game1.getMouseY());
 
-            // --- 2. DESSIN DU FOND ---
             IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 373, 18, 18), x, y, width, 112, Color.White, 4f, false);
 
-            // --- 3. SURBRILLANCE (Hover) ---
             if (isHovered)
             {
-                // Couleur bleutée semi-transparente
                 b.Draw(Game1.staminaRect, new Rectangle(x + 4, y + 4, width - 8, 104), Color.SkyBlue * 0.3f);
             }
 
-            // --- 4. PORTRAIT ---
             IClickableMenu.drawTextureBox(b, Game1.mouseCursors, new Rectangle(384, 396, 15, 15), x + 24, y + 12, 88, 88, Color.White, 4f, false);
             farmer.FarmerRenderer.drawMiniPortrat(b, new Vector2(x + 36, y + 24), 0.88f, 4f, 2, farmer);
 
-            // --- 5. TEXTES ---
             Utility.drawTextWithShadow(b, farmer.Name, Game1.dialogueFont, new Vector2(x + 128, y + 16), Game1.textColor);
             b.DrawString(Game1.smallFont, GetStatusText(relation), new Vector2(x + 128, y + 56), Game1.textShadowColor);
 
-            // --- 6. CŒURS ---
             int hearts = relation.GetHeartLevel(Mod.Config.HeartPointsPerHeart, Mod.Config.MaxHearts);
             int maxHearts = Math.Min(12, Mod.Config.MaxHearts);
             int heartsX = x + 350;
@@ -196,22 +207,29 @@ namespace PlayerRomance.Patches
                 if (k >= 10) break;
                 Rectangle src = (k < hearts) ? HeartFull : HeartEmpty;
 
-                // Effet de vibration si survolé (Juicy effect)
                 Vector2 heartPos = new Vector2(heartsX + (k * 32), heartsY);
                 if (isHovered) heartPos.Y += (float)(Math.Sin(Game1.currentGameTime.TotalGameTime.TotalMilliseconds / 150.0 + k) * 2.0);
 
                 b.Draw(Game1.mouseCursors, heartPos, src, Color.White, 0f, Vector2.Zero, 4f, SpriteEffects.None, 0.88f);
             }
 
-            // --- 7. CADEAUX (Icônes comme les NPCs) ---
             int giftX = x + width - 110;
             int giftY = y + 30;
 
-            // Icône cadeau (petit nœud)
             b.Draw(Game1.mouseCursors, new Vector2(giftX + 10, giftY - 24), GiftIconSource, Color.White, 0f, Vector2.Zero, 2f, SpriteEffects.None, 0.88f);
-            // Les deux cases cadeaux hebdomadaires
-            b.Draw(Game1.mouseCursors, new Vector2(giftX, giftY), GiftBoxEmpty, Color.White, 0f, Vector2.Zero, 3f, SpriteEffects.None, 0.88f);
-            b.Draw(Game1.mouseCursors, new Vector2(giftX + 36, giftY), GiftBoxEmpty, Color.White, 0f, Vector2.Zero, 3f, SpriteEffects.None, 0.88f);
+
+            int giftsGiven = 0;
+            // Correction CS1503 : .ToString() ajouté car les clés du dictionnaire sont des string
+            if (Game1.player.friendshipData.TryGetValue(farmer.UniqueMultiplayerID.ToString(), out var friendship))
+            {
+                giftsGiven = friendship.GiftsThisWeek;
+            }
+
+            Rectangle box1 = (giftsGiven >= 1) ? GiftBoxFilled : GiftBoxEmpty;
+            b.Draw(Game1.mouseCursors, new Vector2(giftX, giftY), box1, Color.White, 0f, Vector2.Zero, 3f, SpriteEffects.None, 0.88f);
+
+            Rectangle box2 = (giftsGiven >= 2) ? GiftBoxFilled : GiftBoxEmpty;
+            b.Draw(Game1.mouseCursors, new Vector2(giftX + 36, giftY), box2, Color.White, 0f, Vector2.Zero, 3f, SpriteEffects.None, 0.88f);
         }
 
         private static string GetStatusText(RelationshipRecord relation)
