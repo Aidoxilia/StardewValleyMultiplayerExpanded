@@ -16,6 +16,7 @@ public sealed class DateImmersionSystem
     private const double JoinGraceSeconds = 10d;
 
     private readonly ModEntry mod;
+    private readonly MapMarkerReader markerReader;
     private readonly Random random = new();
     private readonly HashSet<string> processedInteractionRequests = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<DateStandType, List<StandOfferDefinition>> offersByStand = new();
@@ -32,6 +33,7 @@ public sealed class DateImmersionSystem
     private readonly Dictionary<string, DateTime> lastGraceWarpAtBySession = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> lastClientNotifyByKey = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Vector2> npcWanderTargetByRole = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> nextWanderDecisionTickByRole = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> startNoticeShownSessions = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, long> lastAppliedNpcSyncSequenceByNpc = new(StringComparer.OrdinalIgnoreCase);
     private string localRuntimeSessionId = string.Empty;
@@ -90,6 +92,7 @@ public sealed class DateImmersionSystem
     public DateImmersionSystem(ModEntry mod)
     {
         this.mod = mod;
+        this.markerReader = new MapMarkerReader(mod);
         this.offersByStand[DateStandType.IceCream] = new List<StandOfferDefinition>
         {
             new() { StandType = DateStandType.IceCream, ItemId = "(O)233", DisplayName = "Ice Cream", Price = 250, HeartDeltaOnOffer = 35 },
@@ -187,6 +190,7 @@ public sealed class DateImmersionSystem
         this.lastGraceWarpAtBySession.Clear();
         this.lastClientNotifyByKey.Clear();
         this.npcWanderTargetByRole.Clear();
+        this.nextWanderDecisionTickByRole.Clear();
         this.startNoticeShownSessions.Clear();
         this.lastAppliedNpcSyncSequenceByNpc.Clear();
         this.transitionStarting = false;
@@ -716,7 +720,7 @@ public sealed class DateImmersionSystem
 
     public bool OpenVendorShopFromLocal(out string message)
     {
-        return this.TryOpenVanillaVendorShopFromLocal(out message);
+        return this.TryOpenVanillaVendorShopFromLocal(requireProximity: false, out message);
     }
 
     public bool TryHandleLocalInteractionButton(ButtonPressedEventArgs e)
@@ -738,9 +742,9 @@ public sealed class DateImmersionSystem
             return false;
         }
 
-        if (this.IsNearDateNpc(Game1.player.Tile, 2f))
+        if (this.IsNearVendorNpc(Game1.player.Tile, 2f))
         {
-            if (this.TryOpenVanillaVendorShopFromLocal(out _))
+            if (this.TryOpenVanillaVendorShopFromLocal(requireProximity: true, out _))
             {
                 return true;
             }
@@ -763,13 +767,6 @@ public sealed class DateImmersionSystem
                 this.mod.NetSync.SendToPlayer(MessageType.ImmersiveDateInteractionRequest, payload, Game1.MasterPlayer.UniqueMultiplayerID);
             }
 
-            return true;
-        }
-
-        DateStandType? stand = this.GetNearestStand(Game1.player.Tile, maxDistance: 1.8f);
-        if (stand.HasValue)
-        {
-            Game1.activeClickableMenu = new UI.DateStandMenu(this.mod, this, stand.Value);
             return true;
         }
 
@@ -1387,7 +1384,7 @@ public sealed class DateImmersionSystem
                 VelocityX = 0f,
                 VelocityY = 0f,
                 FacingDirection = npc.FacingDirection,
-                AnimationFrame = npc.Sprite?.currentFrame ?? -1
+                AnimationFrame = npc.Sprite?.currentFrame ?? 0
             });
         }
 
@@ -1451,8 +1448,8 @@ public sealed class DateImmersionSystem
             if (entry.AnimationFrame >= 0 && npc.Sprite is not null)
             {
                 npc.Sprite.currentFrame = entry.AnimationFrame;
+                npc.Sprite.UpdateSourceRect(); // ← manquait
             }
-
             this.lastAppliedNpcSyncSequenceByNpc[seqKey] = sync.SequenceId;
         }
     }
@@ -1482,7 +1479,7 @@ public sealed class DateImmersionSystem
                 && this.startNoticeShownSessions.Add(stateMessage.State.SessionId))
             {
                 this.mod.Notifier.NotifyInfo(
-                    $"Immersive date started in {stateMessage.State.Location}. Right-click stands or date NPCs to interact.",
+                    $"Immersive date started in {stateMessage.State.Location}. Right-click the vendor NPC to open the shop.",
                     "[PR.System.DateImmersion]");
             }
 
@@ -1743,7 +1740,7 @@ public sealed class DateImmersionSystem
             return;
         }
 
-        if (this.localRuntimeSessionId == state.SessionId && this.localStands.Count > 0)
+        if (this.localRuntimeSessionId == state.SessionId && this.localNpcNames.Count > 0)
         {
             return;
         }
@@ -1752,12 +1749,6 @@ public sealed class DateImmersionSystem
         this.localRuntimeSessionId = state.SessionId;
         this.localPublicState = state;
         this.joinGraceBySession[state.SessionId] = DateTime.UtcNow.AddSeconds(JoinGraceSeconds);
-        foreach ((DateStandType standType, Vector2 tile) stand in GetStandLayout(state.Location))
-        {
-            this.localStands.Add(stand);
-        }
-        this.SpawnStandProps(state);
-
         this.SpawnDateNpcs(state);
     }
 
@@ -1821,27 +1812,35 @@ public sealed class DateImmersionSystem
             return;
         }
 
-        this.TrySpawnNpc(location, state.SessionId, "vendor_main", "Gus", GetStandTile(DateStandType.Roses, state.Location) + new Vector2(0f, 1f));
-        this.TrySpawnNpc(location, state.SessionId, "walker_1", "Sam", GetStartTile(state.Location) + new Vector2(2f, 1f));
-        this.TrySpawnNpc(location, state.SessionId, "walker_2", "Leah", GetStartTile(state.Location) + new Vector2(-2f, 1f));
-        this.TrySpawnNpc(location, state.SessionId, "walker_3", "Abigail", GetStartTile(state.Location) + new Vector2(4f, -1f));
-        this.TrySpawnNpc(location, state.SessionId, "walker_4", "Penny", GetStartTile(state.Location) + new Vector2(-4f, -1f));
+        Dictionary<string, MarkerInfo> markers = this.markerReader.ReadMarkers(location);
+        Vector2 vendorTile = MapMarkerReader.GetMarkerTileOrFallback(
+            markers,
+            "Npc_Spot_Vendor",
+            GetStartTile(state.Location) + new Vector2(1f, 1f));
+
+        this.TrySpawnNpc(location, state.SessionId, "vendor_main", "Gus", "Npc_Spot_Vendor", vendorTile, fixedMode: true);
+        this.TrySpawnNpc(location, state.SessionId, "walker_1", "Sam", "Npc_Spot_1", MapMarkerReader.GetMarkerTileOrFallback(markers, "Npc_Spot_1", GetStartTile(state.Location) + new Vector2(2f, 1f)), fixedMode: false);
+        this.TrySpawnNpc(location, state.SessionId, "walker_2", "Leah", "Npc_Spot_2", MapMarkerReader.GetMarkerTileOrFallback(markers, "Npc_Spot_2", GetStartTile(state.Location) + new Vector2(-2f, 1f)), fixedMode: false);
+        this.TrySpawnNpc(location, state.SessionId, "walker_3", "Abigail", "Npc_Spot_3", MapMarkerReader.GetMarkerTileOrFallback(markers, "Npc_Spot_3", GetStartTile(state.Location) + new Vector2(4f, -1f)), fixedMode: false);
+        this.TrySpawnNpc(location, state.SessionId, "walker_4", "Penny", "Npc_Spot_4", MapMarkerReader.GetMarkerTileOrFallback(markers, "Npc_Spot_4", GetStartTile(state.Location) + new Vector2(-4f, -1f)), fixedMode: false);
     }
 
-    private void TrySpawnNpc(GameLocation location, string sessionId, string role, string baseNpcName, Vector2 tile)
+    private void TrySpawnNpc(GameLocation location, string sessionId, string role, string baseNpcName, string markerName, Vector2 tile, bool fixedMode)
     {
         try
         {
-            if (location.characters.Any(p =>
+            NPC? existing = location.characters.FirstOrDefault(p =>
                 p.modData.TryGetValue(TempNpcSessionKey, out string? existingSession)
                 && string.Equals(existingSession, sessionId, StringComparison.OrdinalIgnoreCase)
                 && p.modData.TryGetValue(TempNpcRoleKey, out string? existingRole)
-                && string.Equals(existingRole, role, StringComparison.OrdinalIgnoreCase)))
+                && string.Equals(existingRole, role, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null)
             {
+                MarkerPlacementService.PlaceNpcOnMarker(this.mod, existing, location, tile, 2, fixedMode, markerName, ownerSystem: "DateImmersion");
                 return;
             }
 
-            AnimatedSprite sprite = new($"Characters\\{baseNpcName}");
+            AnimatedSprite sprite = new($"Characters\\{baseNpcName}", 0, 16, 32);
             Texture2D portrait = Game1.content.Load<Texture2D>($"Portraits\\{baseNpcName}");
             NPC npc = new(sprite, tile * 64f, location.NameOrUniqueName, 2, baseNpcName, false, portrait);
             npc.modData[TempNpcFlagKey] = "1";
@@ -1849,6 +1848,7 @@ public sealed class DateImmersionSystem
             npc.modData[TempNpcRoleKey] = role;
 
             location.addCharacter(npc);
+            MarkerPlacementService.PlaceNpcOnMarker(this.mod, npc, location, tile, 2, fixedMode, markerName, ownerSystem: "DateImmersion");
             this.localNpcNames.Add($"{sessionId}:{role}");
         }
         catch (Exception ex)
@@ -1886,42 +1886,41 @@ public sealed class DateImmersionSystem
                 && role.Contains("vendor_", StringComparison.OrdinalIgnoreCase);
 
             string roleKey = role ?? npc.Name;
-            Vector2 currentTile = npc.Position / 64f;
-            if (this.npcWanderTargetByRole.TryGetValue(roleKey, out Vector2 targetTile))
-            {
-                Vector2 targetPos = targetTile * 64f;
-                Vector2 delta = targetPos - npc.Position;
-                if (delta.LengthSquared() > 9f)
-                {
-                    delta.Normalize();
-                    float speed = isVendor ? 1.3f : 1.8f;
-                    npc.Position += delta * speed;
-                    npc.FacingDirection = Math.Abs(delta.X) >= Math.Abs(delta.Y)
-                        ? (delta.X >= 0f ? 1 : 3)
-                        : (delta.Y >= 0f ? 2 : 0);
-                    continue;
-                }
 
-                this.npcWanderTargetByRole.Remove(roleKey);
+            if (isVendor)
+            {
+                MarkerPlacementService.EnforceFixedMarkerAnchor(this.mod, npc, "DateImmersion", "DateImmersion");
+                npc.controller = null;
+                npc.Halt();
+                npc.movementPause = Math.Max(npc.movementPause, 999999);
+                continue;
             }
 
-            if (isVendor || Game1.ticks % 24 != 0)
+            if (npc.controller is not null)
             {
                 continue;
             }
 
-            if (this.random.NextDouble() > 0.32d)
+            if (!this.nextWanderDecisionTickByRole.TryGetValue(roleKey, out int nextDecisionTick)
+                || Game1.ticks >= nextDecisionTick)
+            {
+                this.nextWanderDecisionTickByRole[roleKey] = Game1.ticks + this.random.Next(45, 110);
+            }
+
+            if (Game1.ticks < this.nextWanderDecisionTickByRole[roleKey])
             {
                 continue;
             }
 
+            Vector2 currentTile = npc.Tile;
             List<Vector2> candidates = new()
             {
-                currentTile,
                 currentTile + new Vector2(1f, 0f),
                 currentTile + new Vector2(-1f, 0f),
                 currentTile + new Vector2(0f, 1f),
-                currentTile + new Vector2(0f, -1f)
+                currentTile + new Vector2(0f, -1f),
+                currentTile + new Vector2(1f, 1f),
+                currentTile + new Vector2(-1f, -1f)
             };
 
             Vector2 selected = candidates[this.random.Next(candidates.Count)];
@@ -1930,21 +1929,62 @@ public sealed class DateImmersionSystem
                 continue;
             }
 
-            if (selected == currentTile)
+            if (Vector2.Distance(currentTile, selected) <= 0.05f)
             {
                 continue;
             }
 
+            if (!this.TryAssignPathController(npc, location, selected, roleKey))
+            {
+                this.nextWanderDecisionTickByRole[roleKey] = Game1.ticks + 30;
+                continue;
+            }
+
             this.npcWanderTargetByRole[roleKey] = selected;
+            this.mod.Monitor.Log(
+                $"[PR.System.DateImmersion] Wander intent npc={npc.Name} role={roleKey} from=({currentTile.X:0.##},{currentTile.Y:0.##}) to=({selected.X:0.##},{selected.Y:0.##})",
+                LogLevel.Trace);
         }
     }
 
-    private bool TryOpenVanillaVendorShopFromLocal(out string message)
+    private bool TryAssignPathController(NPC npc, GameLocation location, Vector2 targetTile, string roleKey)
+    {
+        Point targetPoint = new((int)Math.Floor(targetTile.X), (int)Math.Floor(targetTile.Y));
+        try
+        {
+            npc.Halt();
+            npc.controller = new StardewValley.Pathfinding.PathFindController(npc, location, targetPoint, -1);
+            npc.movementPause = 0;
+            // ✅ Vérifier que le path a réellement trouvé un chemin
+            return npc.controller?.pathToEndPoint is { Count: > 0 };
+        }
+        catch (Exception ex)
+        {
+            this.mod.Monitor.Log($"[PR.System.DateImmersion] Path assign failed for {npc.Name}: {ex.Message}", LogLevel.Trace);
+            return false;
+        }
+    }
+
+    private bool TryOpenVanillaVendorShopFromLocal(bool requireProximity, out string message)
     {
         if (!Context.IsWorldReady)
         {
             message = "World not ready.";
             return false;
+        }
+
+        if (requireProximity)
+        {
+            if (!this.TryGetVendorNpc(Game1.player.Tile, maxDistance: 2f, out NPC? vendor))
+            {
+                message = "Move closer to the vendor.";
+                return false;
+            }
+
+            if (vendor is not null)
+            {
+                MarkerPlacementService.EnforceFixedMarkerAnchor(this.mod, vendor, "DateImmersion", "DateImmersion");
+            }
         }
 
         // Vanilla menu flow from Data/Shops + Utility.TryOpenShopMenu.
@@ -2056,6 +2096,7 @@ public sealed class DateImmersionSystem
         this.localNpcNames.Clear();
         this.localStandProps.Clear();
         this.npcWanderTargetByRole.Clear();
+        this.nextWanderDecisionTickByRole.Clear();
     }
 
     private DateStandType? GetNearestStand(Vector2 playerTile, float maxDistance)
@@ -2077,8 +2118,14 @@ public sealed class DateImmersionSystem
         return bestStand;
     }
 
-    private bool IsNearDateNpc(Vector2 playerTile, float maxDistance)
+    private bool IsNearVendorNpc(Vector2 playerTile, float maxDistance)
     {
+        return this.TryGetVendorNpc(playerTile, maxDistance, out _);
+    }
+
+    private bool TryGetVendorNpc(Vector2 playerTile, float maxDistance, out NPC? vendor)
+    {
+        vendor = null;
         if (this.localPublicState is null)
         {
             return false;
@@ -2092,11 +2139,14 @@ public sealed class DateImmersionSystem
         }
 
         string sessionId = this.localPublicState.SessionId;
-        return location.characters.Any(npc =>
+        vendor = location.characters.FirstOrDefault(npc =>
             npc.modData.ContainsKey(TempNpcFlagKey)
             && npc.modData.TryGetValue(TempNpcSessionKey, out string? npcSession)
             && string.Equals(npcSession, sessionId, StringComparison.OrdinalIgnoreCase)
+            && npc.modData.TryGetValue(TempNpcRoleKey, out string? role)
+            && role.Contains("vendor_", StringComparison.OrdinalIgnoreCase)
             && Vector2.Distance(npc.Tile, playerTile) <= maxDistance);
+        return vendor is not null;
     }
 
     private void TryBroadcastAmbientLineHost(DateImmersionSaveState state)

@@ -67,7 +67,7 @@ public sealed class CommandRegistrar
         this.mod.Helper.ConsoleCommands.Add("pr.date.immersive.start", "Start immersive date. Usage: pr.date.immersive.start <player> <town|beach|forest>", this.OnImmersiveDateStart);
         this.mod.Helper.ConsoleCommands.Add("pr.date.immersive.end", "End active immersive date.", this.OnImmersiveDateEnd);
         this.mod.Helper.ConsoleCommands.Add("pr.date.immersive.retry", "Retry immersive date start handshake when session is not yet confirmed.", this.OnImmersiveDateRetry);
-        this.mod.Helper.ConsoleCommands.Add("pr.date.debug.spawnstands", "Debug spawn immersive stands locally. Usage: pr.date.debug.spawnstands <town|beach|forest>", this.OnDateDebugSpawnStands);
+        this.mod.Helper.ConsoleCommands.Add("pr.date.debug.spawnstands", "Deprecated (vendor-only runtime).", this.OnDateDebugSpawnStands);
         this.mod.Helper.ConsoleCommands.Add("pr.date.debug.cleanup", "Debug cleanup immersive date runtime objects.", this.OnDateDebugCleanup);
         this.mod.Helper.ConsoleCommands.Add("pr.date.reset_state", "Debug force reset all date/immersive states and lockouts.", this.OnDateResetState);
         this.mod.Helper.ConsoleCommands.Add("date_start", "Host-only map date start. Usage: date_start <dateId> <playerBNameOrId>", this.OnDateMapStart);
@@ -79,7 +79,7 @@ public sealed class CommandRegistrar
         this.mod.Helper.ConsoleCommands.Add("pr.date.asset_test", "Alias: host-only map asset load test for Date_Beach.", this.OnDateAssetTest);
         this.mod.Helper.ConsoleCommands.Add("pr.date.warp_test", "Alias: host-only warp test to Date_Beach.", this.OnDateWarpTest);
         this.mod.Helper.ConsoleCommands.Add("pr.date.markers_dump", "Alias: host-only dump Date_Beach markers.", this.OnDateMarkersDump);
-        this.mod.Helper.ConsoleCommands.Add("pr.vendor.shop.open", "Vendor shop command. Usage: pr.vendor.shop.open <vanilla|ice|roses|clothing> [itemId] [offer]", this.OnVendorShopOpen);
+        this.mod.Helper.ConsoleCommands.Add("pr.vendor.shop.open", "Vendor shop command. Usage: pr.vendor.shop.open", this.OnVendorShopOpen);
         this.mod.Helper.ConsoleCommands.Add("pr.sim.morning", "Debug simulate morning pass (day-start + 06:10 host tick).", this.OnSimMorning);
 
         this.mod.Helper.ConsoleCommands.Add("pr.hands.request", "Request holding hands with a player. Usage: pr.hands.request <player>", this.OnHandsRequest);
@@ -814,18 +814,12 @@ public sealed class CommandRegistrar
 
     private void OnDateDebugSpawnStands(string command, string[] args)
     {
-        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        if (!this.RequireWorldReady())
         {
             return;
         }
 
-        if (!this.mod.IsHostPlayer)
-        {
-            this.mod.Notifier.NotifyWarn("Debug stand spawn is host only.", "[PR.System.DateImmersion]");
-            return;
-        }
-
-        this.Finish(this.mod.DateImmersionSystem.DebugSpawnStands(args[0], out string msg), msg);
+        this.mod.Notifier.NotifyWarn("Deprecated: stand spawn debug is disabled. Use vendor NPC + pr.vendor.shop.open.", "[PR.System.DateImmersion]");
     }
 
     private void OnDateDebugCleanup(string command, string[] args)
@@ -946,46 +940,11 @@ public sealed class CommandRegistrar
 
     private void OnVendorShopOpen(string command, string[] args)
     {
-        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        if (!this.RequireWorldReady())
         {
             return;
         }
-
-        if (args[0].Equals("vanilla", StringComparison.OrdinalIgnoreCase)
-            || args[0].Equals("open", StringComparison.OrdinalIgnoreCase))
-        {
-            this.Finish(this.mod.DateImmersionSystem.OpenVendorShopFromLocal(out string shopMsg), shopMsg);
-            return;
-        }
-
-        if (!TryParseStandType(args[0], out DateStandType standType))
-        {
-            this.mod.Notifier.NotifyWarn("Stand must be ice, roses, clothing, or 'vanilla'.", "[PR.System.DateImmersion]");
-            return;
-        }
-
-        IReadOnlyList<StandOfferDefinition> offers = this.mod.DateImmersionSystem.GetStandOffers(standType);
-        if (offers.Count == 0)
-        {
-            this.mod.Notifier.NotifyWarn("No offers found for this stand.", "[PR.System.DateImmersion]");
-            return;
-        }
-
-        if (args.Length == 1)
-        {
-            this.mod.Notifier.NotifyInfo($"Offers at {standType} stand:", "[PR.System.DateImmersion]");
-            foreach (StandOfferDefinition offer in offers)
-            {
-                this.mod.Monitor.Log($"[PR.System.DateImmersion] - {offer.ItemId} | {offer.DisplayName} | {offer.Price}g | hearts +{offer.HeartDeltaOnOffer}", LogLevel.Info);
-            }
-
-            this.mod.Notifier.NotifyInfo("Use: pr.vendor.shop.open <stand> <itemId> [offer]", "[PR.System.DateImmersion]");
-            return;
-        }
-
-        string itemId = args[1];
-        bool offerToPartner = args.Length >= 3 && args[2].Equals("offer", StringComparison.OrdinalIgnoreCase);
-        this.Finish(this.mod.DateImmersionSystem.RequestStandPurchaseFromLocal(standType, itemId, offerToPartner, out string msg), msg);
+        this.Finish(this.mod.DateImmersionSystem.OpenVendorShopFromLocal(out string shopMsg), shopMsg);
     }
 
     private void OnSimMorning(string command, string[] args)
@@ -1049,7 +1008,7 @@ public sealed class CommandRegistrar
             "  pr.date.markers_dump / date_markers_dump",
             "  date_start <dateId> <player>",
             "  date_end",
-            "  pr.vendor.shop.open <vanilla|ice|roses|clothing> [itemId] [offer]",
+            "  pr.vendor.shop.open",
             "  pr.child.age.set <child> <years>",
             "  pr.child.age.set <years>   (single child fallback)",
             "  pr.child.grow.force <child> [years>=16]",

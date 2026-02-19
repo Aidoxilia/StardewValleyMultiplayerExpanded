@@ -515,6 +515,9 @@ public sealed class DateEventController
         Dictionary<string, MarkerInfo> markers = this.markerReader.ReadMarkers(dateLocation);
         Vector2 playerATile = Systems.MapMarkerReader.GetMarkerTileOrFallback(markers, "PlayerA_Spot", new Vector2(10, 10));
         Vector2 playerBTile = Systems.MapMarkerReader.GetMarkerTileOrFallback(markers, "PlayerB_Spot", new Vector2(12, 10));
+        this.mod.Monitor.Log(
+            $"[PR.System.DateEvent] Start markers players: A=({playerATile.X:0.##},{playerATile.Y:0.##}) B=({playerBTile.X:0.##},{playerBTile.Y:0.##}) map={definition.MapName}",
+            LogLevel.Info);
 
         List<DateEventNpcPlacementMessage> placements = this.BuildNpcPlacements(definition, markers);
         string sessionId = $"date_{Guid.NewGuid():N}";
@@ -645,6 +648,8 @@ public sealed class DateEventController
                 Game1.activeClickableMenu = null;
             }
         }
+
+        this.EnforceFixedNpcAnchorsLocal();
     }
 
     private void EndDateHost(bool success, string reason)
@@ -730,10 +735,13 @@ public sealed class DateEventController
 
         if (definition.VendorNpc is not null)
         {
-            Vector2 tile = Systems.MapMarkerReader.GetMarkerTileOrFallback(markers, definition.VendorNpc.SpotName, new Vector2(14, 12));
+            string vendorSpotName = markers.ContainsKey("Npc_Spot_Vendor")
+                ? "Npc_Spot_Vendor"
+                : definition.VendorNpc.SpotName;
+            Vector2 tile = Systems.MapMarkerReader.GetMarkerTileOrFallback(markers, vendorSpotName, new Vector2(14, 12));
             placements.Add(new DateEventNpcPlacementMessage
             {
-                SpotName = definition.VendorNpc.SpotName,
+                SpotName = vendorSpotName,
                 NpcName = definition.VendorNpc.NpcName,
                 TileX = (int)tile.X,
                 TileY = (int)tile.Y,
@@ -767,11 +775,16 @@ public sealed class DateEventController
                 this.activeLocal?.TempNpcNames.Add(npc.Name);
             }
 
-            npc.currentLocation = location;
-            npc.setTileLocation(new Vector2(placement.TileX, placement.TileY));
-            npc.Position = new Vector2(placement.TileX, placement.TileY) * 64f;
-            npc.FacingDirection = placement.FacingDirection;
-            npc.Speed = 0;
+            bool fixedMode = this.IsFixedDatePlacement(placement);
+            MarkerPlacementService.PlaceNpcOnMarker(
+                this.mod,
+                npc,
+                location,
+                new Vector2(placement.TileX, placement.TileY),
+                placement.FacingDirection,
+                fixedMode,
+                placement.SpotName,
+                ownerSystem: "DateEvent");
         }
     }
 
@@ -857,12 +870,42 @@ public sealed class DateEventController
     private void PlaceAndFreezeLocalPlayer(int tileX, int tileY, int facing)
     {
         Vector2 tile = new(tileX, tileY);
-        Game1.player.setTileLocation(tile);
-        Game1.player.Position = tile * 64f;
-        Game1.player.FacingDirection = facing;
+        MarkerPlacementService.PlacePlayerOnMarker(Game1.player, tile, facing);
         Game1.player.CanMove = false;
         Game1.player.UsingTool = false;
         Game1.player.canReleaseTool = false;
+    }
+
+    private void EnforceFixedNpcAnchorsLocal()
+    {
+        if (this.activeLocal is null)
+        {
+            return;
+        }
+
+        GameLocation? location = Game1.currentLocation;
+        if (location is null)
+        {
+            return;
+        }
+
+        foreach (NPC npc in location.characters)
+        {
+            MarkerPlacementService.EnforceFixedMarkerAnchor(this.mod, npc, "DateEvent", "DateEvent");
+        }
+    }
+
+    private bool IsFixedDatePlacement(DateEventNpcPlacementMessage placement)
+    {
+        if (placement.IsVendor)
+        {
+            return true;
+        }
+
+        string spot = placement.SpotName ?? string.Empty;
+        return spot.Contains("vendor", StringComparison.OrdinalIgnoreCase)
+               || spot.Contains("fixed", StringComparison.OrdinalIgnoreCase)
+               || spot.Contains("anchor", StringComparison.OrdinalIgnoreCase);
     }
 
     private void SuspendCarryAndHandsForEventPair(long playerAId, long playerBId)

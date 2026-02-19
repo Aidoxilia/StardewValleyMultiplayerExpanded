@@ -162,14 +162,14 @@ dotnet build .\PlayerRomance.csproj -c Release /p:SkipModRootCopy=true
 - `pr.hearts.max <player>` / `max_hearth <player>` (host cheat: set max hearts)
 - `pr.date.immersive.start <player> <town|beach|forest>`
 - `pr.date.immersive.end`
-- `pr.date.debug.spawnstands <town|beach|forest>` (host debug)
+- `pr.date.debug.spawnstands` (deprecated; vendor-only runtime)
 - `pr.date.debug.cleanup`
 - `pr.date.immersive.retry`
 - `pr.date.reset_state` (host debug force reset: active sessions + daily date lockouts)
 - `pr.date.asset_test` / `date_asset_test` (host debug)
 - `pr.date.warp_test` / `date_warp_test` (host debug: must warp to `Date_Beach`)
 - `pr.date.markers_dump` / `date_markers_dump` (host debug)
-- `pr.vendor.shop.open <ice|roses|clothing> [itemId] [offer]` (debug vendor buy/offer path)
+- `pr.vendor.shop.open` (opens vanilla vendor shop)
 - `romance help dev` (or `romance_help_dev`) to print the full dev command list
 - `pr.hands.request <player>`
 - `pr.hands.accept`

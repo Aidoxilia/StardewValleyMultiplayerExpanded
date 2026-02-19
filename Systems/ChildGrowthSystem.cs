@@ -20,10 +20,85 @@ public sealed class ChildGrowthSystem
     private const int ChildMaxAgeYears = 11;
     private const int TeenMaxAgeYears = 15;
 
+    // -------------------------------------------------------------------------
+    // IA : états comportementaux
+    // -------------------------------------------------------------------------
+    private enum ChildAiState { Idle, Wander, GoHome }
+
+    // Routine horaire : tranches de temps du jeu (Game1.timeOfDay)
+    // Chaque tranche définit la location cible selon le stage
+    private sealed class RoutineSlot
+    {
+        public int TimeStart { get; init; }   // ex: 600  = 6h00
+        public int TimeEnd { get; init; }   // ex: 1200 = 12h00
+        public string LocationChild { get; init; } = "FarmHouse";
+        public string LocationTeen { get; init; } = "FarmHouse";
+        public string LocationAdult { get; init; } = "Farm";
+    }
+
+    // Routine quotidienne — jours normaux (non-rainy)
+    private static readonly RoutineSlot[] DailyRoutine =
+    {
+        new() { TimeStart = 600,  TimeEnd = 900,  LocationChild = "FarmHouse", LocationTeen = "FarmHouse", LocationAdult = "Farm"      },
+        new() { TimeStart = 900,  TimeEnd = 1400, LocationChild = "Farm",      LocationTeen = "Farm",      LocationAdult = "Farm"      },
+        new() { TimeStart = 1400, TimeEnd = 1800, LocationChild = "FarmHouse", LocationTeen = "Town",      LocationAdult = "Town"      },
+        new() { TimeStart = 1800, TimeEnd = 2200, LocationChild = "FarmHouse", LocationTeen = "FarmHouse", LocationAdult = "FarmHouse" },
+    };
+
+    // Routine pluvieuse — tout le monde reste à l'intérieur
+    private static readonly RoutineSlot[] RainyRoutine =
+    {
+        new() { TimeStart = 600,  TimeEnd = 2200, LocationChild = "FarmHouse", LocationTeen = "FarmHouse", LocationAdult = "FarmHouse" },
+    };
+
+    // Points d'ancrage par location — zones naturelles où errer
+    // Le NPC choisira aléatoirement parmi ces ancres et pathfindera vers l'une d'elles
+    private static readonly Dictionary<string, Vector2[]> AnchorsByLocation =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["FarmHouse"] = new[]
+            {
+                new Vector2(5f,  4f),
+                new Vector2(9f,  4f),
+                new Vector2(5f,  8f),
+                new Vector2(9f,  8f),
+                new Vector2(7f,  6f),
+                new Vector2(3f,  6f),
+                new Vector2(11f, 6f),
+            },
+            ["Farm"] = new[]
+            {
+                new Vector2(58f, 12f),
+                new Vector2(62f, 15f),
+                new Vector2(66f, 12f),
+                new Vector2(60f, 18f),
+                new Vector2(64f, 18f),
+                new Vector2(55f, 15f),
+                new Vector2(68f, 15f),
+            },
+            ["Town"] = new[]
+            {
+                new Vector2(48f, 61f),
+                new Vector2(52f, 63f),
+                new Vector2(56f, 61f),
+                new Vector2(50f, 65f),
+                new Vector2(54f, 65f),
+                new Vector2(44f, 63f),
+                new Vector2(58f, 63f),
+            },
+        };
+
     private readonly ModEntry mod;
     private readonly Dictionary<string, string> runtimeNpcByChildId = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, int> nextWanderTickByChildId = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, long> lastAppliedNpcSyncSequenceByChild = new(StringComparer.OrdinalIgnoreCase);
+
+    // IA runtime (host seulement)
+    private readonly Dictionary<string, ChildAiState> aiStateByChildId = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> aiNextActionTickById = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> aiPathFailCountById = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Vector2> aiCurrentAnchorById = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> aiCurrentLocationById = new(StringComparer.OrdinalIgnoreCase);
+    private int aiLastRoutineCheckTime = -1;
 
     public ChildGrowthSystem(ModEntry mod)
     {
@@ -33,8 +108,13 @@ public sealed class ChildGrowthSystem
     public void Reset()
     {
         this.runtimeNpcByChildId.Clear();
-        this.nextWanderTickByChildId.Clear();
         this.lastAppliedNpcSyncSequenceByChild.Clear();
+        this.aiStateByChildId.Clear();
+        this.aiNextActionTickById.Clear();
+        this.aiPathFailCountById.Clear();
+        this.aiCurrentAnchorById.Clear();
+        this.aiCurrentLocationById.Clear();
+        this.aiLastRoutineCheckTime = -1;
         if (!Context.IsWorldReady)
         {
             return;
@@ -112,97 +192,411 @@ public sealed class ChildGrowthSystem
 
     public void OnUpdateTickedHost()
     {
-        if (!this.mod.IsHostPlayer || !this.mod.Config.EnableChildGrowth || !Context.IsWorldReady)
-        {
+        if (!this.mod.IsHostPlayer || !this.mod.Config.EnableChildGrowth || !Context.IsWorldReady || Game1.paused)
             return;
-        }
 
+        if (Game1.CurrentEvent != null)
+            return;
+
+        // Rebuild NPC registry toutes les 2 secondes
         if (Game1.ticks % 120 == 0)
-        {
             this.RebuildChildrenForActiveState();
-        }
 
-        if (Game1.ticks % 30 != 0)
-        {
+        // Vérifier la routine horaire toutes les ~5 secondes (évite les appels à chaque tick)
+        if (Game1.ticks % 300 == 0)
+            this.TickRoutineCheckHost();
+
+        // Tick IA toutes les 60 ticks (1 seconde)
+        if (Game1.ticks % 60 != 0)
             return;
-        }
 
         foreach (GameLocation location in Game1.locations)
         {
+            if (location.currentEvent != null)
+                continue;
+
             foreach (NPC npc in location.characters.Where(this.IsRuntimeChildNpc).ToList())
             {
                 if (!npc.modData.TryGetValue(ChildNpcIdKey, out string? childId)
-                    || string.IsNullOrWhiteSpace(childId)
                     || !this.mod.HostSaveData.Children.TryGetValue(childId, out ChildRecord? child))
-                {
                     continue;
-                }
 
                 this.EnsureV3Defaults(child);
+
                 if (child.Stage == ChildLifeStage.Infant)
-                {
                     continue;
-                }
 
-                if (!this.nextWanderTickByChildId.TryGetValue(child.ChildId, out int nextTick) || Game1.ticks < nextTick)
-                {
-                    continue;
-                }
-
-                this.nextWanderTickByChildId[child.ChildId] = Game1.ticks + 20 + Math.Abs(HashCode.Combine(child.ChildId, Game1.ticks)) % 50;
-
-                Vector2 currentTile = new((float)Math.Floor(npc.Position.X / 64f), (float)Math.Floor(npc.Position.Y / 64f));
-                Vector2 homeTile = this.GetSpawnTileForChild(location, child);
-                Vector2 desiredTile = currentTile;
-                bool returningHome = Vector2.Distance(currentTile, homeTile) > 6f;
-                if (returningHome)
-                {
-                    desiredTile = homeTile;
-                }
-                else
-                {
-                    int dir = Math.Abs(HashCode.Combine(child.ChildId, Game1.ticks / 30)) % 5;
-                    desiredTile = dir switch
-                    {
-                        1 => currentTile + new Vector2(1f, 0f),
-                        2 => currentTile + new Vector2(-1f, 0f),
-                        3 => currentTile + new Vector2(0f, 1f),
-                        4 => currentTile + new Vector2(0f, -1f),
-                        _ => currentTile
-                    };
-                }
-
-                if (!this.TryFindNearestSafeTile(location, desiredTile, maxRadius: 3, out Vector2 safeTile, npc))
-                {
-                    continue;
-                }
-
-                if (!returningHome && Vector2.Distance(currentTile, safeTile) > 1.5f)
-                {
-                    continue;
-                }
-
-                Vector2 move = safeTile - currentTile;
-                if (move == Vector2.Zero)
-                {
-                    continue;
-                }
-
-                Vector2 targetPos = safeTile * 64f;
-                Vector2 delta = targetPos - npc.Position;
-                float step = 6f;
-                if (delta.Length() > step)
-                {
-                    delta.Normalize();
-                    delta *= step;
-                }
-
-                npc.Position += delta;
-                npc.FacingDirection = Math.Abs(move.X) >= Math.Abs(move.Y)
-                    ? (move.X >= 0f ? 1 : 3)
-                    : (move.Y >= 0f ? 2 : 0);
+                this.TickChildAiHost(npc, child, location);
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // IA : tick principal par enfant
+    // -------------------------------------------------------------------------
+    private void TickChildAiHost(NPC npc, ChildRecord child, GameLocation currentLocation)
+    {
+        // Si le NPC est en train de marcher vers sa cible, on le laisse finir
+        if (npc.controller != null)
+        {
+            // Vérifier que le path n'est pas bloqué (controller sans path = path échoué)
+            if (npc.controller.pathToEndPoint is { Count: > 0 })
+                return;
+
+            // Path vide = échec du pathfinding, on abandonne proprement
+            npc.controller = null;
+            npc.Halt();
+            this.IncrementPathFail(child.ChildId);
+        }
+
+        // Pas encore l'heure d'agir
+        if (!this.IsAiReady(child.ChildId))
+            return;
+
+        // Déterminer la location cible selon la routine
+        string targetLocationName = this.GetRoutineLocationForChild(child);
+        GameLocation? targetLocation = Game1.getLocationFromName(targetLocationName) ?? currentLocation;
+
+        // --- Si l'enfant n'est pas dans la bonne location, le téléporter proprement ---
+        if (!string.Equals(currentLocation.NameOrUniqueName, targetLocation.NameOrUniqueName, StringComparison.OrdinalIgnoreCase))
+        {
+            this.TeleportChildToLocation(npc, child, targetLocation);
+            this.SetAiState(child.ChildId, ChildAiState.Wander, cooldownTicks: 120);
+            return;
+        }
+
+        // --- Choisir l'état IA ---
+        ChildAiState state = this.GetAiState(child.ChildId);
+
+        switch (state)
+        {
+            case ChildAiState.Idle:
+                this.AiIdle(npc, child, currentLocation);
+                break;
+
+            case ChildAiState.Wander:
+                this.AiWander(npc, child, currentLocation);
+                break;
+
+            case ChildAiState.GoHome:
+                this.AiGoHome(npc, child, currentLocation);
+                break;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // IA : comportement Idle (pause naturelle)
+    // -------------------------------------------------------------------------
+    private void AiIdle(NPC npc, ChildRecord child, GameLocation location)
+    {
+        // Pendant l'idle, faire une petite animation
+        this.TryPlayIdleEmote(npc, child);
+
+        // Après la pause, décider si on erre ou si on rentre
+        ChildAiState next = Game1.random.NextDouble() < 0.75 ? ChildAiState.Wander : ChildAiState.GoHome;
+        int idleTicks = Game1.random.Next(180, 480); // 3-8 secondes
+        this.SetAiState(child.ChildId, next, idleTicks);
+    }
+
+    // -------------------------------------------------------------------------
+    // IA : comportement Wander (errer vers une ancre)
+    // -------------------------------------------------------------------------
+    private void AiWander(NPC npc, ChildRecord child, GameLocation location)
+    {
+        // Choisir une ancre dans la location courante, différente de la précédente
+        Vector2 anchor = this.PickAnchor(location, child.ChildId);
+        Vector2 currentTile = npc.Tile;
+
+        // Si on est déjà sur l'ancre, passer en Idle
+        if (Vector2.Distance(currentTile, anchor) < 1.5f)
+        {
+            this.SetAiState(child.ChildId, ChildAiState.Idle, Game1.random.Next(120, 360));
+            return;
+        }
+
+        // Trouver une tuile safe proche de l'ancre
+        if (!this.TryFindNearestSafeTile(location, anchor, maxRadius: 4, out Vector2 safeTile, npc))
+        {
+            // Aucune tuile safe autour de l'ancre → on attend et on réessaie avec une autre ancre
+            this.aiCurrentAnchorById.Remove(child.ChildId);
+            this.SetAiState(child.ChildId, ChildAiState.Wander, Game1.random.Next(120, 240));
+            return;
+        }
+
+        // Assigner le PathFindController
+        bool ok = this.TryAssignChildPathController(npc, location, safeTile);
+        if (ok)
+        {
+            this.aiCurrentAnchorById[child.ChildId] = anchor;
+            this.aiPathFailCountById[child.ChildId] = 0;
+            // Pas de SetAiState ici — on restera en Wander jusqu'à ce que le path finisse
+            // Le prochain tick vérifiera si npc.controller est null (= arrivé)
+            this.SetAiState(child.ChildId, ChildAiState.Idle, cooldownTicks: 60);
+        }
+        else
+        {
+            this.IncrementPathFail(child.ChildId);
+            int failCount = this.aiPathFailCountById.GetValueOrDefault(child.ChildId, 0);
+
+            if (failCount >= 4)
+            {
+                // Trop d'échecs → téléporter directement sur une ancre safe
+                this.TeleportToSafeAnchor(npc, child, location);
+                this.aiPathFailCountById[child.ChildId] = 0;
+                this.SetAiState(child.ChildId, ChildAiState.Idle, 300);
+            }
+            else
+            {
+                // Réessayer avec un cooldown exponentiel
+                int cooldown = 60 * (1 << Math.Min(failCount, 4)); // 60, 120, 240, 480 ticks
+                this.SetAiState(child.ChildId, ChildAiState.Wander, cooldown);
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // IA : comportement GoHome (retour à l'ancre principale)
+    // -------------------------------------------------------------------------
+    private void AiGoHome(NPC npc, ChildRecord child, GameLocation location)
+    {
+        // L'ancre "home" est la première ancre de la location
+        Vector2 homeTile = this.GetHomeTileForLocation(location);
+
+        if (Vector2.Distance(npc.Tile, homeTile) < 1.5f)
+        {
+            this.SetAiState(child.ChildId, ChildAiState.Idle, Game1.random.Next(300, 600));
+            return;
+        }
+
+        if (!this.TryFindNearestSafeTile(location, homeTile, maxRadius: 4, out Vector2 safeTile, npc))
+        {
+            this.SetAiState(child.ChildId, ChildAiState.Wander, 180);
+            return;
+        }
+
+        bool ok = this.TryAssignChildPathController(npc, location, safeTile);
+        this.SetAiState(child.ChildId, ok ? ChildAiState.Idle : ChildAiState.Wander,
+            ok ? 120 : Game1.random.Next(120, 300));
+    }
+
+    // -------------------------------------------------------------------------
+    // IA : tick de vérification de routine (location change selon l'heure)
+    // -------------------------------------------------------------------------
+    private void TickRoutineCheckHost()
+    {
+        int time = Game1.timeOfDay;
+        if (time == this.aiLastRoutineCheckTime)
+            return;
+
+        this.aiLastRoutineCheckTime = time;
+
+        foreach (ChildRecord child in this.mod.HostSaveData.Children.Values)
+        {
+            this.EnsureV3Defaults(child);
+            if (child.Stage == ChildLifeStage.Infant)
+                continue;
+
+            string targetLocation = this.GetRoutineLocationForChild(child);
+            if (this.aiCurrentLocationById.TryGetValue(child.ChildId, out string? lastLocation)
+                && string.Equals(lastLocation, targetLocation, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // La location cible a changé → forcer un GoHome dans la nouvelle location
+            this.aiCurrentLocationById[child.ChildId] = targetLocation;
+            this.SetAiState(child.ChildId, ChildAiState.GoHome, cooldownTicks: 0);
+
+            this.mod.Monitor.Log(
+                $"[PR.AI.Child] Routine change: child={child.ChildId} -> location={targetLocation} time={time}",
+                LogLevel.Trace);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // IA : helpers
+    // -------------------------------------------------------------------------
+    private string GetRoutineLocationForChild(ChildRecord child)
+    {
+        bool isRainy = Game1.isRaining || Game1.isSnowing;
+        RoutineSlot[] routine = isRainy ? RainyRoutine : DailyRoutine;
+        int time = Game1.timeOfDay;
+
+        RoutineSlot slot = routine[0];
+        foreach (RoutineSlot s in routine)
+        {
+            if (time >= s.TimeStart && time < s.TimeEnd)
+            {
+                slot = s;
+                break;
+            }
+        }
+
+        return child.Stage switch
+        {
+            ChildLifeStage.Teen => slot.LocationTeen,
+            ChildLifeStage.Adult => slot.LocationAdult,
+            _ => slot.LocationChild,
+        };
+    }
+
+    private Vector2 PickAnchor(GameLocation location, string childId)
+    {
+        string locName = location.NameOrUniqueName;
+        if (!AnchorsByLocation.TryGetValue(locName, out Vector2[]? anchors) || anchors.Length == 0)
+        {
+            // Location inconnue : ancre aléatoire dans la zone centrale
+            int w = location.Map?.Layers[0]?.LayerWidth ?? 20;
+            int h = location.Map?.Layers[0]?.LayerHeight ?? 20;
+            return new Vector2(Game1.random.Next(3, Math.Max(4, w - 3)),
+                               Game1.random.Next(3, Math.Max(4, h - 3)));
+        }
+
+        // Exclure l'ancre courante pour éviter de rester sur place
+        Vector2 currentAnchor = this.aiCurrentAnchorById.GetValueOrDefault(childId, Vector2.Zero);
+        Vector2[] candidates = anchors
+            .Where(a => Vector2.Distance(a, currentAnchor) > 2f)
+            .ToArray();
+
+        if (candidates.Length == 0)
+            candidates = anchors;
+
+        return candidates[Game1.random.Next(candidates.Length)];
+    }
+
+    private Vector2 GetHomeTileForLocation(GameLocation location)
+    {
+        string locName = location.NameOrUniqueName;
+        if (AnchorsByLocation.TryGetValue(locName, out Vector2[]? anchors) && anchors.Length > 0)
+            return anchors[0];
+
+        return new Vector2(
+            (location.Map?.Layers[0]?.LayerWidth ?? 20) / 2f,
+            (location.Map?.Layers[0]?.LayerHeight ?? 20) / 2f);
+    }
+
+    private void TeleportChildToLocation(NPC npc, ChildRecord child, GameLocation targetLocation)
+    {
+        GameLocation? currentLocation = npc.currentLocation;
+        if (currentLocation != null
+            && !string.Equals(currentLocation.NameOrUniqueName, targetLocation.NameOrUniqueName, StringComparison.OrdinalIgnoreCase))
+        {
+            currentLocation.characters.Remove(npc);
+            targetLocation.addCharacter(npc);
+            npc.currentLocation = targetLocation;
+        }
+
+        Vector2 homeTile = this.GetHomeTileForLocation(targetLocation);
+        if (this.TryFindNearestSafeTile(targetLocation, homeTile, maxRadius: 8, out Vector2 safeTile, npc))
+        {
+            npc.setTileLocation(safeTile);
+            npc.Position = safeTile * 64f;
+        }
+
+        npc.controller = null;
+        npc.Halt();
+        child.RoutineZone = targetLocation.NameOrUniqueName;
+        this.aiCurrentAnchorById.Remove(child.ChildId);
+
+        this.mod.Monitor.Log(
+            $"[PR.AI.Child] Teleport child={child.ChildId} -> location={targetLocation.NameOrUniqueName}",
+            LogLevel.Trace);
+    }
+
+    private void TeleportToSafeAnchor(NPC npc, ChildRecord child, GameLocation location)
+    {
+        string locName = location.NameOrUniqueName;
+        if (!AnchorsByLocation.TryGetValue(locName, out Vector2[]? anchors) || anchors.Length == 0)
+            return;
+
+        foreach (Vector2 anchor in anchors.OrderBy(_ => Game1.random.Next()))
+        {
+            if (this.TryFindNearestSafeTile(location, anchor, maxRadius: 3, out Vector2 safe, npc))
+            {
+                npc.controller = null;
+                npc.Halt();
+                npc.setTileLocation(safe);
+                npc.Position = safe * 64f;
+                this.aiCurrentAnchorById[child.ChildId] = anchor;
+                this.mod.Monitor.Log(
+                    $"[PR.AI.Child] Emergency teleport child={child.ChildId} -> tile=({safe.X},{safe.Y})",
+                    LogLevel.Trace);
+                return;
+            }
+        }
+    }
+
+    private bool TryAssignChildPathController(NPC npc, GameLocation location, Vector2 targetTile)
+    {
+        Point targetPoint = new((int)Math.Floor(targetTile.X), (int)Math.Floor(targetTile.Y));
+        try
+        {
+            npc.Halt();
+            var controller = new StardewValley.Pathfinding.PathFindController(npc, location, targetPoint, -1);
+
+            // Vérifier que le pathfinder a réellement trouvé un chemin
+            if (controller.pathToEndPoint is null || controller.pathToEndPoint.Count == 0)
+            {
+                this.mod.Monitor.Log(
+                    $"[PR.AI.Child] No path found for {npc.Name} -> ({targetPoint.X},{targetPoint.Y})",
+                    LogLevel.Trace);
+                return false;
+            }
+
+            npc.controller = controller;
+            npc.movementPause = 0;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            this.mod.Monitor.Log(
+                $"[PR.AI.Child] Path assign exception for {npc.Name}: {ex.Message}",
+                LogLevel.Trace);
+            return false;
+        }
+    }
+
+    private void TryPlayIdleEmote(NPC npc, ChildRecord child)
+    {
+        // Emotes selon le stage : enfant joue, ado rêve, adulte inspecte
+        int[] childEmotes = { 8, 12, 32 };  // happy, music, question
+        int[] teenEmotes = { 4, 8, 40 };   // sad, happy, angry
+        int[] adultEmotes = { 8, 16, 56 };  // happy, exclamation, working
+
+        int[] pool = child.Stage switch
+        {
+            ChildLifeStage.Teen => teenEmotes,
+            ChildLifeStage.Adult => adultEmotes,
+            _ => childEmotes,
+        };
+
+        // Ne jouer un emote que 20% du temps pour ne pas spammer
+        if (Game1.random.NextDouble() < 0.2)
+        {
+            try { npc.doEmote(pool[Game1.random.Next(pool.Length)]); }
+            catch { /* ignore */ }
+        }
+    }
+
+    // IA state machine helpers
+    private bool IsAiReady(string childId)
+    {
+        return !this.aiNextActionTickById.TryGetValue(childId, out int next) || Game1.ticks >= next;
+    }
+
+    private ChildAiState GetAiState(string childId)
+    {
+        return this.aiStateByChildId.TryGetValue(childId, out ChildAiState s) ? s : ChildAiState.Wander;
+    }
+
+    private void SetAiState(string childId, ChildAiState state, int cooldownTicks = 60)
+    {
+        this.aiStateByChildId[childId] = state;
+        this.aiNextActionTickById[childId] = Game1.ticks + Math.Max(0, cooldownTicks);
+    }
+
+    private void IncrementPathFail(string childId)
+    {
+        this.aiPathFailCountById[childId] =
+            this.aiPathFailCountById.GetValueOrDefault(childId, 0) + 1;
     }
 
     public void BroadcastNpcSyncHost()
@@ -238,7 +632,8 @@ public sealed class ChildGrowthSystem
                     VelocityX = 0f,
                     VelocityY = 0f,
                     FacingDirection = npc.FacingDirection,
-                    AnimationFrame = npc.Sprite?.currentFrame ?? -1
+                    AnimationFrame = npc.Sprite?.currentFrame ?? 0
+
                 });
             }
         }
@@ -251,6 +646,8 @@ public sealed class ChildGrowthSystem
 
     public void ApplyNpcSyncClient(NpcSyncMessage sync)
     {
+        if (Game1.CurrentEvent != null) return;
+
         if (sync is null
             || this.mod.IsHostPlayer
             || !Context.IsWorldReady
@@ -262,23 +659,14 @@ public sealed class ChildGrowthSystem
 
         foreach (NpcSyncEntryMessage entry in sync.Entries)
         {
-            if (string.IsNullOrWhiteSpace(entry.GroupId))
-            {
-                continue;
-            }
+            if (string.IsNullOrWhiteSpace(entry.GroupId)) continue;
 
             ChildRecord? child = this.mod.ClientSnapshot.Children.FirstOrDefault(p =>
                 string.Equals(p.ChildId, entry.GroupId, StringComparison.OrdinalIgnoreCase));
-            if (child is null)
-            {
-                continue;
-            }
+            if (child is null) continue;
 
             this.EnsureV3Defaults(child);
-            if (child.Stage == ChildLifeStage.Infant)
-            {
-                continue;
-            }
+            if (child.Stage == ChildLifeStage.Infant) continue;
 
             string seqKey = $"child:{entry.GroupId}";
             if (this.lastAppliedNpcSyncSequenceByChild.TryGetValue(seqKey, out long lastSeq)
@@ -288,43 +676,44 @@ public sealed class ChildGrowthSystem
             }
 
             GameLocation? location = Game1.getLocationFromName(entry.LocationName);
-            if (location is null)
-            {
-                continue;
-            }
+            if (location is null) continue;
 
             NPC? npc = location.characters.FirstOrDefault(p =>
                 this.IsRuntimeChildNpc(p)
                 && p.modData.TryGetValue(ChildNpcIdKey, out string? existingId)
                 && string.Equals(existingId, entry.GroupId, StringComparison.OrdinalIgnoreCase));
+
             if (npc is null)
             {
                 this.TrySpawnOrRefreshRuntimeNpc(child);
                 location = Game1.getLocationFromName(entry.LocationName);
-                if (location is null)
-                {
-                    continue;
-                }
+                if (location is null) continue;
 
                 npc = location.characters.FirstOrDefault(p =>
                     this.IsRuntimeChildNpc(p)
                     && p.modData.TryGetValue(ChildNpcIdKey, out string? existingId)
                     && string.Equals(existingId, entry.GroupId, StringComparison.OrdinalIgnoreCase));
-                if (npc is null)
-                {
-                    continue;
-                }
+
+                if (npc is null) continue;
             }
+
+            // --- C'EST ICI QUE CA CHANGE ---
 
             Vector2 targetPos = new(entry.PixelX, entry.PixelY);
             float distance = Vector2.Distance(npc.Position, targetPos);
-            npc.Position = distance >= 128f
-                ? targetPos
-                : Vector2.Lerp(npc.Position, targetPos, 0.6f);
+
+            if (distance > 128f)
+                npc.Position = targetPos;
+            else
+                npc.Position = Vector2.Lerp(npc.Position, targetPos, 0.1f);
+
+            // Appliquer direction ET frame directement — pas d'Animate()
             npc.FacingDirection = Math.Clamp(entry.FacingDirection, 0, 3);
-            if (entry.AnimationFrame >= 0 && npc.Sprite is not null)
+
+            if (npc.Sprite != null && entry.AnimationFrame >= 0)
             {
                 npc.Sprite.currentFrame = entry.AnimationFrame;
+                npc.Sprite.UpdateSourceRect();
             }
 
             this.lastAppliedNpcSyncSequenceByChild[seqKey] = sync.SequenceId;
@@ -1270,10 +1659,15 @@ public sealed class ChildGrowthSystem
             TagRuntimeNpc(existing, child);
             if (!this.IsSafeNpcPosition(location, existing.Position))
             {
-                Vector2 fallbackTile = this.GetSpawnTileForChild(location, child);
-                if (this.TryFindNearestSafeTile(location, fallbackTile, maxRadius: 8, out Vector2 safeTile))
+                // ✅ Ignorer le NPC lui-même dans le check de collision
+                Vector2 currentTile = existing.Tile;
+                if (!this.IsSafeNpcTile(location, currentTile, ignoreNpc: existing))
                 {
-                    existing.Position = safeTile * 64f;
+                    Vector2 fallbackTile = this.GetSpawnTileForChild(location, child);
+                    if (this.TryFindNearestSafeTile(location, fallbackTile, maxRadius: 8, out Vector2 safeTile, ignoreNpc: existing))
+                    {
+                        existing.Position = safeTile * 64f;
+                    }
                 }
             }
 
@@ -1292,7 +1686,7 @@ public sealed class ChildGrowthSystem
         }
         try
         {
-            AnimatedSprite sprite = new($"Characters\\{templateName}");
+            AnimatedSprite sprite = new($"Characters\\{templateName}", 0, 16, 32);
             Texture2D portrait = Game1.content.Load<Texture2D>($"Portraits\\{templateName}");
             NPC npc = new(
                 sprite,
@@ -1322,7 +1716,7 @@ public sealed class ChildGrowthSystem
     {
         try
         {
-            AnimatedSprite sprite = new("Characters\\Vincent");
+            AnimatedSprite sprite = new("Characters\\Vincent", 0, 16, 32);
             Texture2D portrait = Game1.content.Load<Texture2D>("Portraits\\Vincent");
             NPC npc = new(
                 sprite,
@@ -1356,19 +1750,8 @@ public sealed class ChildGrowthSystem
 
     private string ResolveRoutineLocation(ChildRecord child)
     {
-        if (child.Stage == ChildLifeStage.Infant)
-        {
-            return "FarmHouse";
-        }
-
-        int day = this.mod.GetCurrentDayNumber();
-        bool toTown = child.Stage != ChildLifeStage.Infant && day % 5 == 0;
-        if (toTown)
-        {
-            return "Town";
-        }
-
-        return day % 2 == 0 ? "Farm" : "FarmHouse";
+        // Délègue au système de routines horaires
+        return this.GetRoutineLocationForChild(child);
     }
 
     private string ResolveTemplateNpcName(ChildRecord child)
@@ -1385,17 +1768,8 @@ public sealed class ChildGrowthSystem
 
     private Vector2 GetSpawnTileForChild(GameLocation location, ChildRecord child)
     {
-        Vector2 baseTile = location.NameOrUniqueName switch
-        {
-            "Farm" => new Vector2(63f, 15f),
-            "Town" => new Vector2(52f, 63f),
-            _ => new Vector2(10f, 10f)
-        };
-        int hash = Math.Abs(HashCode.Combine(child.ChildId, this.mod.GetCurrentDayNumber()));
-        float dx = (hash % 5) - 2;
-        float dy = ((hash / 7) % 5) - 2;
-        Vector2 candidate = baseTile + new Vector2(dx, dy);
-        return this.ClampTileToLocation(location, candidate);
+        // Utilise la première ancre de la location comme point de spawn
+        return this.GetHomeTileForLocation(location);
     }
 
     private Vector2 ClampTileToLocation(GameLocation location, Vector2 tile)
@@ -1460,7 +1834,7 @@ public sealed class ChildGrowthSystem
         return npc.modData.ContainsKey(ChildNpcFlagKey);
     }
 
-    private bool IsSafeNpcPosition(GameLocation location, Vector2 worldPosition)
+    private bool IsSafeNpcPosition(GameLocation location, Vector2 worldPosition, NPC? ignoreNpc = null)
     {
         if (float.IsNaN(worldPosition.X)
             || float.IsNaN(worldPosition.Y)
@@ -1471,7 +1845,7 @@ public sealed class ChildGrowthSystem
         }
 
         Vector2 tile = worldPosition / 64f;
-        return this.IsSafeNpcTile(location, new Vector2((float)Math.Floor(tile.X), (float)Math.Floor(tile.Y)));
+        return this.IsSafeNpcTile(location, new Vector2((float)Math.Floor(tile.X), (float)Math.Floor(tile.Y)), ignoreNpc);
     }
 
     private bool IsSafeNpcTile(GameLocation location, Vector2 tile, NPC? ignoreNpc = null)
