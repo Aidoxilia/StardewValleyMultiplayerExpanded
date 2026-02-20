@@ -8,6 +8,7 @@ public sealed class ModConfig
     public bool EnableHoldingHands { get; set; } = true;
     public string RomanceHubHotkey { get; set; } = "F7";
     public string ChildrenManagementHotkey { get; set; } = "F8";
+    public string PregnancyMenuHotkey { get; set; } = "F9";
     public int HeartPointsPerHeart { get; set; } = 250;
     public int MaxHearts { get; set; } = 14;
     public int ImmersiveDatePointsReward { get; set; } = 120;
@@ -30,6 +31,7 @@ public sealed class ModConfig
     public bool EnableMarriage { get; set; } = true;
     public bool EnablePregnancy { get; set; } = true;
     public int PregnancyDays { get; set; } = 7;
+    public int PregnancyDurationDays { get; set; } = 7;
     public bool EnableChildGrowth { get; set; } = true;
     public bool EnableChildFeedingSystem { get; set; } = true;
     public int ChildYearsPerFedDayMin { get; set; } = 2;

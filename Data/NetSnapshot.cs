@@ -5,6 +5,11 @@ public sealed class NetSnapshot
     public int DayNumber { get; set; }
     public List<RelationshipRecord> Relationships { get; set; } = new();
     public List<PregnancyRecord> Pregnancies { get; set; } = new();
+    public List<PregnancyRecord> ActivePregnancies
+    {
+        get => this.Pregnancies;
+        set => this.Pregnancies = value ?? new();
+    }
     public List<ChildRecord> Children { get; set; } = new();
     public List<ChildPublicState> ChildRuntimeStates { get; set; } = new();
     public List<CarrySessionState> CarrySessions { get; set; } = new();

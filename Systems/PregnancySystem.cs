@@ -1,13 +1,19 @@
+using Microsoft.Xna.Framework;
 using PlayerRomance.Data;
 using PlayerRomance.Net;
+using StardewModdingAPI;
 using StardewValley;
+using StardewValley.Buffs;
 using System.Diagnostics.CodeAnalysis;
 
 namespace PlayerRomance.Systems;
 
 public sealed class PregnancySystem
 {
+    private const string SupportBuffId = "PlayerRomance.PregnancySupport";
     private readonly ModEntry mod;
+    private readonly Dictionary<long, int> lastEnergyTickByPlayer = new();
+    private readonly Dictionary<long, int> lastSupportBuffSecondByPlayer = new();
 
     public PregnancySystem(ModEntry mod)
     {
@@ -186,9 +192,17 @@ public sealed class PregnancySystem
         }
 
         PregnancyRecord record = this.GetOrCreateRecord(from, partner);
+        this.EnsureV2Defaults(record);
+
         if (record.IsPregnant)
         {
             this.mod.NetSync.SendError(senderId, "already_pregnant", "A pregnancy is already in progress.");
+            return;
+        }
+
+        if (!record.ParentAOptIn || !record.ParentBOptIn)
+        {
+            this.mod.NetSync.SendError(senderId, "opt_in_required", "Both parents must enable baby opt-in first.");
             return;
         }
 
@@ -201,6 +215,7 @@ public sealed class PregnancySystem
         record.PendingTryForBabyFrom = from.UniqueMultiplayerID;
         this.mod.MarkDataDirty("Try-for-baby request created.", flushNow: true);
         this.mod.NetSync.BroadcastSnapshotToAll();
+
         if (partner.UniqueMultiplayerID == this.mod.LocalPlayerId)
         {
             this.mod.RequestPrompts.Enqueue(
@@ -254,6 +269,8 @@ public sealed class PregnancySystem
             return;
         }
 
+        this.EnsureV2Defaults(record);
+
         bool valid = record.PendingTryForBabyFrom.HasValue
             && record.PendingTryForBabyFrom.Value == decision.PartnerId
             && (record.ParentAId == decision.FromPlayerId || record.ParentBId == decision.FromPlayerId);
@@ -266,10 +283,14 @@ public sealed class PregnancySystem
         record.PendingTryForBabyFrom = null;
         if (decision.Accepted)
         {
+            int duration = this.GetConfiguredPregnancyDurationDays();
             record.IsPregnant = true;
-            record.DaysRemaining = Math.Max(1, this.mod.Config.PregnancyDays);
+            record.PregnancyDurationDays = duration;
+            record.CurrentPregnancyDay = 1;
+            record.DaysRemaining = duration;
             record.StartedOnDay = this.mod.GetCurrentDayNumber();
             record.LastProcessedDay = this.mod.GetCurrentDayNumber();
+            record.PregnantPlayerId = decision.FromPlayerId;
         }
 
         this.mod.MarkDataDirty("Try-for-baby decision applied.", flushNow: true);
@@ -300,13 +321,18 @@ public sealed class PregnancySystem
         }
 
         PregnancyRecord record = this.GetOrCreateRecord(playerA, playerB);
+        int duration = Math.Max(1, days);
+
         record.ParentAOptIn = true;
         record.ParentBOptIn = true;
         record.PendingTryForBabyFrom = null;
         record.IsPregnant = true;
-        record.DaysRemaining = Math.Max(1, days);
+        record.PregnancyDurationDays = duration;
+        record.CurrentPregnancyDay = 1;
+        record.DaysRemaining = duration;
         record.StartedOnDay = this.mod.GetCurrentDayNumber();
         record.LastProcessedDay = this.mod.GetCurrentDayNumber();
+        record.PregnantPlayerId = record.ParentAId;
 
         this.mod.MarkDataDirty("Pregnancy force command applied.", flushNow: true);
         this.mod.NetSync.BroadcastSnapshotToAll();
@@ -337,26 +363,10 @@ public sealed class PregnancySystem
         }
 
         PregnancyRecord record = this.GetOrCreateRecord(playerA, playerB);
-        record.ParentAOptIn = true;
-        record.ParentBOptIn = true;
-        record.PendingTryForBabyFrom = null;
-        record.IsPregnant = false;
-        record.DaysRemaining = 0;
-        record.StartedOnDay = 0;
-        record.LastProcessedDay = this.mod.GetCurrentDayNumber();
+        this.EnsureV2Defaults(record);
 
-        ChildRecord child = this.CreateChild(record);
-        this.mod.HostSaveData.Children[child.ChildId] = child;
+        ChildRecord child = this.CompleteBirth(record);
 
-        this.mod.NetSync.Broadcast(
-            MessageType.ChildBorn,
-            new ChildSyncMessage
-            {
-                Child = child
-            },
-            record.ParentAId,
-            record.ParentBId);
-        this.mod.ChildGrowthSystem.RebuildChildrenForActiveState();
         this.mod.MarkDataDirty("Birth force command applied.", flushNow: true);
         this.mod.NetSync.BroadcastSnapshotToAll();
         message = $"Forced birth complete: {child.ChildName} ({playerA.Name} + {playerB.Name}).";
@@ -375,6 +385,7 @@ public sealed class PregnancySystem
 
         foreach (PregnancyRecord record in this.mod.HostSaveData.Pregnancies.Values)
         {
+            this.EnsureV2Defaults(record);
             if (!record.IsPregnant || record.LastProcessedDay == day)
             {
                 continue;
@@ -382,6 +393,7 @@ public sealed class PregnancySystem
 
             record.LastProcessedDay = day;
             record.DaysRemaining = Math.Max(0, record.DaysRemaining - 1);
+            record.CurrentPregnancyDay = Math.Clamp(record.PregnancyDurationDays - record.DaysRemaining + 1, 1, record.PregnancyDurationDays);
             anyChanged = true;
 
             if (record.DaysRemaining > 0)
@@ -389,21 +401,8 @@ public sealed class PregnancySystem
                 continue;
             }
 
-            ChildRecord child = this.CreateChild(record);
-            this.mod.HostSaveData.Children[child.ChildId] = child;
-            record.IsPregnant = false;
-
-            this.mod.NetSync.Broadcast(
-                MessageType.ChildBorn,
-                new ChildSyncMessage
-                {
-                    Child = child
-                },
-                record.ParentAId,
-                record.ParentBId);
-            this.mod.ChildGrowthSystem.RebuildChildrenForActiveState();
-
-            this.mod.Notifier.NotifyInfo($"A child was born: {child.ChildName}.", "[PR.System.Pregnancy]");
+            ChildRecord born = this.CompleteBirth(record);
+            this.mod.Notifier.NotifyInfo($"A child was born: {born.ChildName}.", "[PR.System.Pregnancy]");
         }
 
         if (anyChanged)
@@ -413,46 +412,217 @@ public sealed class PregnancySystem
         }
     }
 
+    public void OnOneSecondUpdateTickedHost()
+    {
+        if (!this.mod.IsHostPlayer || !this.mod.Config.EnablePregnancy || !Context.IsWorldReady)
+        {
+            return;
+        }
+
+        int nowSecond = (int)Game1.currentGameTime.TotalGameTime.TotalSeconds;
+
+        foreach (PregnancyRecord record in this.mod.HostSaveData.Pregnancies.Values)
+        {
+            this.EnsureV2Defaults(record);
+            if (!record.IsPregnant)
+            {
+                continue;
+            }
+
+            Farmer? pregnant = this.mod.FindFarmerById(record.PregnantPlayerId, includeOffline: false)
+                ?? this.mod.FindFarmerById(record.ParentAId, includeOffline: false)
+                ?? this.mod.FindFarmerById(record.ParentBId, includeOffline: false);
+            if (pregnant is null)
+            {
+                continue;
+            }
+
+            this.ApplyPregnancyEnergyEffects(pregnant, record, nowSecond);
+        }
+    }
+
     public bool TryGetPendingTryForBabyForPlayer(long targetPlayerId, out long requesterId)
     {
         return this.TryGetPendingTryForBaby(targetPlayerId, out _, out requesterId);
     }
 
-    private ChildRecord CreateChild(PregnancyRecord record)
+    public bool TryGetActivePregnancyForPlayer(long playerId, [NotNullWhen(true)] out PregnancyRecord? record)
     {
-        string childId = $"child_{Guid.NewGuid():N}";
-        int familyChildren = this.mod.HostSaveData.Children.Values.Count(p =>
-            p.ParentAId == record.ParentAId && p.ParentBId == record.ParentBId
-            || p.ParentAId == record.ParentBId && p.ParentBId == record.ParentAId);
-
-        string childName = $"Kid {record.ParentAName[..Math.Min(record.ParentAName.Length, 3)]}{record.ParentBName[..Math.Min(record.ParentBName.Length, 3)]}{familyChildren + 1}";
-
-        return new ChildRecord
+        foreach (PregnancyRecord entry in this.GetPregnanciesForRead())
         {
-            ChildId = childId,
-            ChildName = childName,
-            ParentAId = record.ParentAId,
-            ParentAName = record.ParentAName,
-            ParentBId = record.ParentBId,
-            ParentBName = record.ParentBName,
-            AgeYears = 0,
-            AgeDays = 0,
-            Stage = ChildLifeStage.Infant,
-            BirthDayNumber = this.mod.GetCurrentDayNumber(),
-            LastProcessedDay = this.mod.GetCurrentDayNumber(),
-            IsFedToday = false,
-            FeedingProgress = 0,
-            AssignedTask = ChildTaskType.Auto,
-            AutoMode = true,
-            LastWorkedDay = -1,
-            RoutineZone = "FarmHouse",
-            RuntimeNpcName = $"PR_Child_{childId[..8]}",
-            RuntimeNpcSpawned = false,
-            VisualProfile = new ChildVisualProfile(),
-            IsWorkerEnabled = true,
-            AdultNpcName = $"PR_AdultChild_{childId[..8]}",
-            AdultNpcSpawned = false
-        };
+            if (!entry.IsPregnant)
+            {
+                continue;
+            }
+
+            if (entry.PregnantPlayerId == playerId || entry.ParentAId == playerId || entry.ParentBId == playerId)
+            {
+                record = entry;
+                return true;
+            }
+        }
+
+        record = null;
+        return false;
+    }
+
+    public float GetPregnancyProgress01(long playerId)
+    {
+        if (!this.TryGetActivePregnancyForPlayer(playerId, out PregnancyRecord? record) || record.PregnancyDurationDays <= 0)
+        {
+            return 0f;
+        }
+
+        int day = Math.Clamp(record.CurrentPregnancyDay, 1, record.PregnancyDurationDays);
+        return Math.Clamp(day / (float)record.PregnancyDurationDays, 0f, 1f);
+    }
+
+    public string GetPregnancyStageText(long playerId)
+    {
+        if (!this.TryGetActivePregnancyForPlayer(playerId, out PregnancyRecord? record))
+        {
+            return "No active pregnancy";
+        }
+
+        if (this.IsNearBirthWindow(record))
+        {
+            return "Late stage (day 6/7 window)";
+        }
+
+        if (record.CurrentPregnancyDay <= 2)
+        {
+            return "Early stage";
+        }
+
+        return "Mid stage";
+    }
+
+    public IEnumerable<PregnancyRecord> GetPregnanciesForPlayer(long playerId)
+    {
+        foreach (PregnancyRecord entry in this.GetPregnanciesForRead())
+        {
+            if (entry.ParentAId == playerId || entry.ParentBId == playerId)
+            {
+                yield return entry;
+            }
+        }
+    }
+
+    private ChildRecord CompleteBirth(PregnancyRecord record)
+    {
+        record.PendingTryForBabyFrom = null;
+        record.IsPregnant = false;
+        record.DaysRemaining = 0;
+        record.StartedOnDay = 0;
+        record.LastProcessedDay = this.mod.GetCurrentDayNumber();
+        record.CurrentPregnancyDay = 0;
+        record.PregnantPlayerId = 0;
+
+        ChildRecord child = this.mod.ChildGrowthSystem.CreateNewbornFromPregnancy(record);
+        this.mod.NetSync.Broadcast(
+            MessageType.ChildBorn,
+            new ChildSyncMessage
+            {
+                Child = child
+            },
+            record.ParentAId,
+            record.ParentBId);
+
+        return child;
+    }
+
+    private void ApplyPregnancyEnergyEffects(Farmer pregnant, PregnancyRecord record, int nowSecond)
+    {
+        if (!this.IsEnergyTickReady(pregnant.UniqueMultiplayerID, nowSecond))
+        {
+            return;
+        }
+
+        bool inLateWindow = this.IsNearBirthWindow(record);
+        float drain = inLateWindow ? 0.45f : 0.22f;
+
+        long partnerId = record.ParentAId == pregnant.UniqueMultiplayerID ? record.ParentBId : record.ParentAId;
+        Farmer? partner = this.mod.FindFarmerById(partnerId, includeOffline: false);
+        bool supportActive = partner is not null
+            && partner.currentLocation == pregnant.currentLocation
+            && Vector2.Distance(partner.Tile, pregnant.Tile) <= 4f;
+
+        if (supportActive)
+        {
+            drain *= 0.5f;
+            this.ApplySupportBuffIcon(pregnant, inLateWindow, nowSecond);
+        }
+
+        pregnant.Stamina = Math.Max(20f, pregnant.Stamina - drain);
+    }
+
+    private void ApplySupportBuffIcon(Farmer farmer, bool lateStage, int nowSecond)
+    {
+        if (this.lastSupportBuffSecondByPlayer.TryGetValue(farmer.UniqueMultiplayerID, out int last)
+            && nowSecond - last < 15)
+        {
+            return;
+        }
+
+        this.lastSupportBuffSecondByPlayer[farmer.UniqueMultiplayerID] = nowSecond;
+        try
+        {
+            string source = lateStage ? "Partner Support (Late)" : "Partner Support";
+            string description = lateStage
+                ? "Partner support reduces late pregnancy fatigue."
+                : "Partner support reduces pregnancy fatigue.";
+
+            Buff iconBuff = new(
+                SupportBuffId,
+                source,
+                source,
+                4600,
+                Game1.buffsIcons,
+                0,
+                new BuffEffects(),
+                false,
+                description,
+                string.Empty);
+            farmer.applyBuff(iconBuff);
+        }
+        catch (Exception ex)
+        {
+            this.mod.Monitor.Log($"[PR.System.Pregnancy] Failed to apply support buff icon: {ex.Message}", LogLevel.Trace);
+        }
+    }
+
+    private bool IsNearBirthWindow(PregnancyRecord record)
+    {
+        this.EnsureV2Defaults(record);
+        int threshold = Math.Max(1, record.PregnancyDurationDays - 1);
+        return record.CurrentPregnancyDay >= threshold;
+    }
+
+    private bool IsEnergyTickReady(long playerId, int nowSecond)
+    {
+        if (!this.lastEnergyTickByPlayer.TryGetValue(playerId, out int last))
+        {
+            this.lastEnergyTickByPlayer[playerId] = nowSecond;
+            return true;
+        }
+
+        if (nowSecond <= last)
+        {
+            return false;
+        }
+
+        this.lastEnergyTickByPlayer[playerId] = nowSecond;
+        return true;
+    }
+
+    private int GetConfiguredPregnancyDurationDays()
+    {
+        if (this.mod.Config.PregnancyDurationDays > 0)
+        {
+            return Math.Max(2, this.mod.Config.PregnancyDurationDays);
+        }
+
+        return Math.Max(2, this.mod.Config.PregnancyDays);
     }
 
     private PregnancyRecord GetOrCreateRecord(Farmer player, Farmer partner)
@@ -474,7 +644,10 @@ public sealed class PregnancySystem
                 IsPregnant = false,
                 DaysRemaining = 0,
                 StartedOnDay = 0,
-                LastProcessedDay = 0
+                LastProcessedDay = 0,
+                PregnantPlayerId = 0,
+                PregnancyDurationDays = this.GetConfiguredPregnancyDurationDays(),
+                CurrentPregnancyDay = 0
             };
             this.mod.HostSaveData.Pregnancies[key] = record;
         }
@@ -492,16 +665,56 @@ public sealed class PregnancySystem
             }
         }
 
+        this.EnsureV2Defaults(record);
         return record;
+    }
+
+    private void EnsureV2Defaults(PregnancyRecord record)
+    {
+        if (record.PregnancyDurationDays <= 0)
+        {
+            record.PregnancyDurationDays = this.GetConfiguredPregnancyDurationDays();
+        }
+
+        if (!record.IsPregnant)
+        {
+            record.CurrentPregnancyDay = 0;
+            record.DaysRemaining = Math.Max(0, record.DaysRemaining);
+            if (record.PregnantPlayerId == 0)
+            {
+                record.PregnantPlayerId = 0;
+            }
+
+            return;
+        }
+
+        if (record.PregnantPlayerId == 0)
+        {
+            record.PregnantPlayerId = record.ParentAId;
+        }
+
+        if (record.DaysRemaining <= 0)
+        {
+            record.DaysRemaining = Math.Max(1, record.PregnancyDurationDays - Math.Max(record.CurrentPregnancyDay - 1, 0));
+        }
+
+        if (record.CurrentPregnancyDay <= 0)
+        {
+            int inferred = record.PregnancyDurationDays - record.DaysRemaining + 1;
+            record.CurrentPregnancyDay = Math.Clamp(inferred, 1, record.PregnancyDurationDays);
+        }
+    }
+
+    private IEnumerable<PregnancyRecord> GetPregnanciesForRead()
+    {
+        return this.mod.IsHostPlayer
+            ? this.mod.HostSaveData.Pregnancies.Values
+            : this.mod.ClientSnapshot.Pregnancies;
     }
 
     private bool TryGetPendingTryForBaby(long targetPlayerId, [NotNullWhen(true)] out PregnancyRecord? record, out long requesterId)
     {
-        IEnumerable<PregnancyRecord> list = this.mod.IsHostPlayer
-            ? this.mod.HostSaveData.Pregnancies.Values
-            : this.mod.ClientSnapshot.Pregnancies;
-
-        foreach (PregnancyRecord entry in list)
+        foreach (PregnancyRecord entry in this.GetPregnanciesForRead())
         {
             if (!entry.PendingTryForBabyFrom.HasValue)
             {

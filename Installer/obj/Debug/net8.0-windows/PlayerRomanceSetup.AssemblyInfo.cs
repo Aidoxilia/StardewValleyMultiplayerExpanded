@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("PlayerRomanceSetup")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6b6bc471c48360423b7cd7f4427210d8877c826d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+529b1302df7be3d9668d2495e0ebdabd93dd6202")]
 [assembly: System.Reflection.AssemblyProductAttribute("PlayerRomanceSetup")]
 [assembly: System.Reflection.AssemblyTitleAttribute("PlayerRomanceSetup")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -105,6 +105,7 @@ namespace PlayerRomance
 
             // Initialize Harmony patches (C'est ça qui gère le menu social maintenant)
             SocialPagePatches.Initialize(this);
+            PregnancyPatches.Initialize(this);
 
             this.Monitor.Log("[PR.Core] Entry complete.", LogLevel.Info);
         }
@@ -211,6 +212,16 @@ namespace PlayerRomance
                 return parsed;
             }
             return SButton.F8;
+        }
+
+        internal SButton GetPregnancyMenuHotkey()
+        {
+            if (Enum.TryParse(this.Config.PregnancyMenuHotkey, ignoreCase: true, out SButton parsed))
+            {
+                return parsed;
+            }
+
+            return SButton.F9;
         }
 
         internal Farmer? FindFarmerById(long playerId, bool includeOffline)

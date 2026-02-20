@@ -14,4 +14,7 @@ public sealed class PregnancyRecord
     public int DaysRemaining { get; set; }
     public int StartedOnDay { get; set; }
     public int LastProcessedDay { get; set; }
+    public long PregnantPlayerId { get; set; }
+    public int PregnancyDurationDays { get; set; } = 7;
+    public int CurrentPregnancyDay { get; set; }
 }

@@ -871,6 +871,48 @@ public sealed class ChildGrowthSystem
         this.RebuildChildrenForActiveState();
     }
 
+    public ChildRecord CreateNewbornFromPregnancy(PregnancyRecord pregnancy)
+    {
+        string childId = $"child_{Guid.NewGuid():N}";
+        int familyChildren = this.mod.HostSaveData.Children.Values.Count(p =>
+            (p.ParentAId == pregnancy.ParentAId && p.ParentBId == pregnancy.ParentBId)
+            || (p.ParentAId == pregnancy.ParentBId && p.ParentBId == pregnancy.ParentAId));
+
+        string aSeed = pregnancy.ParentAName[..Math.Min(pregnancy.ParentAName.Length, 3)];
+        string bSeed = pregnancy.ParentBName[..Math.Min(pregnancy.ParentBName.Length, 3)];
+        ChildRecord child = new()
+        {
+            ChildId = childId,
+            ChildName = $"Kid {aSeed}{bSeed}{familyChildren + 1}",
+            ParentAId = pregnancy.ParentAId,
+            ParentAName = pregnancy.ParentAName,
+            ParentBId = pregnancy.ParentBId,
+            ParentBName = pregnancy.ParentBName,
+            AgeYears = 0,
+            AgeDays = 0,
+            Stage = ChildLifeStage.Infant,
+            BirthDayNumber = this.mod.GetCurrentDayNumber(),
+            LastProcessedDay = this.mod.GetCurrentDayNumber(),
+            IsFedToday = false,
+            FeedingProgress = 0,
+            AssignedTask = ChildTaskType.Auto,
+            AutoMode = true,
+            LastWorkedDay = -1,
+            RoutineZone = "FarmHouse",
+            RuntimeNpcName = $"PR_Child_{childId[..8]}",
+            RuntimeNpcSpawned = false,
+            VisualProfile = new ChildVisualProfile(),
+            IsWorkerEnabled = true,
+            AdultNpcName = $"PR_AdultChild_{childId[..8]}",
+            AdultNpcSpawned = false
+        };
+
+        this.EnsureV3Defaults(child);
+        this.mod.HostSaveData.Children[child.ChildId] = child;
+        this.RebuildChildrenForActiveState();
+        return child;
+    }
+
     public void RebuildChildrenForActiveState()
     {
         if (!this.mod.IsHostPlayer || !this.mod.Config.EnableChildGrowth || !Context.IsWorldReady)

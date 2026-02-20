@@ -227,7 +227,10 @@ public sealed class NetSyncService
             IsPregnant = source.IsPregnant,
             DaysRemaining = source.DaysRemaining,
             StartedOnDay = source.StartedOnDay,
-            LastProcessedDay = source.LastProcessedDay
+            LastProcessedDay = source.LastProcessedDay,
+            PregnantPlayerId = source.PregnantPlayerId,
+            PregnancyDurationDays = source.PregnancyDurationDays,
+            CurrentPregnancyDay = source.CurrentPregnancyDay
         };
     }
 

@@ -122,6 +122,7 @@ public sealed class GameEventOrchestrator
 
         this.mod.DateImmersionSystem.OnOneSecondUpdateTickedHost();
         this.mod.CarrySystem.OnOneSecondUpdateTickedHost();
+        this.mod.PregnancySystem.OnOneSecondUpdateTickedHost();
         this.mod.CoupleSynergySystem.OnOneSecondUpdateTickedHost();
     }
 
@@ -216,6 +217,11 @@ public sealed class GameEventOrchestrator
 
         if (e.Button != this.mod.GetChildrenManagementHotkey())
         {
+            if (e.Button == this.mod.GetPregnancyMenuHotkey())
+            {
+                Game1.activeClickableMenu = new UI.PregnancyMenu(this.mod);
+            }
+
             return;
         }
 

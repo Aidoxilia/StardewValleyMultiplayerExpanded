@@ -213,8 +213,48 @@ public sealed class DateImmersionSystem
         }
     }
 
+    private string ResolveBaseNpcNameFromUniqueName(string uniqueName)
+    {
+        // Chercher dans tous les NPCs de date actifs
+        foreach (GameLocation location in Game1.locations)
+        {
+            foreach (NPC npc in location.characters)
+            {
+                if (npc.Name.Equals(uniqueName, StringComparison.OrdinalIgnoreCase)
+                    && npc.modData.TryGetValue("PlayerRomance/DateNpcBaseName", out string? baseName)
+                    && !string.IsNullOrWhiteSpace(baseName))
+                {
+                    return baseName;
+                }
+            }
+        }
+        return "Abigail"; // fallback
+    }
+
     public void OnAssetRequested(AssetRequestedEventArgs e)
     {
+        string assetName = e.NameWithoutLocale.BaseName;
+
+        bool isPortrait = assetName.StartsWith("Portraits/PR_Date_", StringComparison.OrdinalIgnoreCase);
+        bool isCharacter = assetName.StartsWith("Characters/PR_Date_", StringComparison.OrdinalIgnoreCase);
+
+        if (!isPortrait && !isCharacter)
+            return;
+
+        // Retrouver le baseNpcName depuis le NPC en mémoire
+        string uniqueName = assetName[(assetName.LastIndexOf('/') + 1)..];
+        string baseNpcName = this.ResolveBaseNpcNameFromUniqueName(uniqueName);
+        string prefix = isPortrait ? "Portraits" : "Characters";
+        string fallback = "Abigail";
+
+        e.LoadFrom(
+            () =>
+            {
+                try { return Game1.content.Load<Texture2D>($"{prefix}\\{baseNpcName}"); }
+                catch { return Game1.content.Load<Texture2D>($"{prefix}\\{fallback}"); }
+            },
+            AssetLoadPriority.Exclusive);
+
         if (!e.NameWithoutLocale.IsEquivalentTo("Data/Shops"))
         {
             return;
@@ -1842,10 +1882,12 @@ public sealed class DateImmersionSystem
 
             AnimatedSprite sprite = new($"Characters\\{baseNpcName}", 0, 16, 32);
             Texture2D portrait = Game1.content.Load<Texture2D>($"Portraits\\{baseNpcName}");
-            NPC npc = new(sprite, tile * 64f, location.NameOrUniqueName, 2, baseNpcName, false, portrait);
+            string uniqueName = $"PR_Date_{role}_{sessionId[..8]}";
+            NPC npc = new(sprite, tile * 64f, location.NameOrUniqueName, 2, uniqueName, false, portrait);
             npc.modData[TempNpcFlagKey] = "1";
             npc.modData[TempNpcSessionKey] = sessionId;
             npc.modData[TempNpcRoleKey] = role;
+            npc.modData["PlayerRomance/DateNpcBaseName"] = baseNpcName;
 
             location.addCharacter(npc);
             MarkerPlacementService.PlaceNpcOnMarker(this.mod, npc, location, tile, 2, fixedMode, markerName, ownerSystem: "DateImmersion");
