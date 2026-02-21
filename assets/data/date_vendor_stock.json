@@ -1,0 +1,39 @@
+[
+  {
+    "ItemId": "(O)595",
+    "Price": 350,
+    "Stock": 20,
+    "Tags": ["DateGift", "Flower"]
+  },
+  {
+    "ItemId": "(O)458",
+    "Price": 550,
+    "Stock": 12,
+    "Tags": ["DateGift", "BouquetStyle"]
+  },
+  {
+    "ItemId": "(O)220",
+    "Price": 300,
+    "Stock": 15,
+    "Tags": ["DateGift", "Cake"]
+  },
+  {
+    "ItemId": "(O)233",
+    "Price": 250,
+    "Stock": 25,
+    "Tags": ["Dessert"]
+  },
+  {
+    "ItemId": "(H)1",
+    "Price": 750,
+    "Stock": 5,
+    "Tags": ["DateGift", "Clothing"]
+  },
+  {
+    "ItemId": "(H)27",
+    "Price": 900,
+    "Stock": 4,
+    "Season": "spring",
+    "Tags": ["Clothing"]
+  }
+]

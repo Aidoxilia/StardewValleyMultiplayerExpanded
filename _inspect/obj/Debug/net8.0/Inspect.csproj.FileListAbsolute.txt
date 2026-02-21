@@ -12,3 +12,4 @@ C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley\Mods\MultiplayerExp
 C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley\Mods\MultiplayerExpanded\_inspect\obj\Debug\net8.0\Inspect.pdb
 C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley\Mods\MultiplayerExpanded\_inspect\obj\Debug\net8.0\Inspect.genruntimeconfig.cache
 C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley\Mods\MultiplayerExpanded\_inspect\obj\Debug\net8.0\ref\Inspect.dll
+C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley\Mods\MultiplayerExpanded\_inspect\obj\Debug\net8.0\Inspect.sourcelink.json

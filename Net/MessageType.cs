@@ -35,5 +35,7 @@ public enum MessageType
     ChildCommandResult = 30,
     DateEventPhase = 31,
     EndDateEvent = 32,
-    NpcSync = 33
+    NpcSync = 33,
+    ProfileUpdateRequest = 34,
+    ProfileUpdated = 35
 }

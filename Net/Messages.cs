@@ -261,6 +261,19 @@ public sealed class NpcSyncMessage
     public List<NpcSyncEntryMessage> Entries { get; set; } = new();
 }
 
+public sealed class PlayerProfileUpdateRequestMessage
+{
+    public long FromPlayerId { get; set; }
+    public string BirthdaySeason { get; set; } = string.Empty;
+    public int BirthdayDay { get; set; }
+    public List<string> FavoriteGiftItemIds { get; set; } = new();
+}
+
+public sealed class PlayerProfileUpdatedMessage
+{
+    public PlayerProfileRecord Profile { get; set; } = new();
+}
+
 public sealed class ErrorMessage
 {
     public string Code { get; set; } = string.Empty;

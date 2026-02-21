@@ -1,3 +1,4 @@
+using PlayerRomance.Patches;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
@@ -32,6 +33,7 @@ public sealed class GameEventOrchestrator
         events.Display.RenderedWorld += this.OnRenderedWorld;
         events.Display.RenderedActiveMenu += this.OnRenderedActiveMenu;
         events.Content.AssetRequested += this.OnAssetRequested;
+        events.Content.AssetsInvalidated += this.OnAssetsInvalidated;
     }
 
     private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
@@ -170,7 +172,12 @@ public sealed class GameEventOrchestrator
 
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
     {
-        if (!Context.IsWorldReady || !Context.IsPlayerFree)
+        if (!Context.IsWorldReady)
+        {
+            return;
+        }
+
+        if (!Context.IsPlayerFree)
         {
             return;
         }
@@ -231,6 +238,8 @@ public sealed class GameEventOrchestrator
     private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
     {
         this.mod.SocialVanillaSystem.Draw(e.SpriteBatch);
+        // Draw back-button overlay + redraw cursor on top (must be last).
+        GameMenuPatches.DrawNavigationOverlay(e.SpriteBatch);
     }
 
     private void OnRenderedWorld(object? sender, RenderedWorldEventArgs e)
@@ -243,5 +252,10 @@ public sealed class GameEventOrchestrator
         this.mod.ChildGrowthSystem.OnAssetRequested(e);
         this.mod.DateEventController.OnAssetRequested(e);
         this.mod.DateImmersionSystem.OnAssetRequested(e);
+    }
+
+    private void OnAssetsInvalidated(object? sender, AssetsInvalidatedEventArgs e)
+    {
+        this.mod.DateVendorShopService.InvalidateAndReloadIfNeeded(e.NamesWithoutLocale);
     }
 }

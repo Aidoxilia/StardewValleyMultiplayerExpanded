@@ -6,6 +6,7 @@ using StardewValley;
 using StardewValley.Menus;
 using StardewValley.BellsAndWhistles;
 using PlayerRomance.Data;
+using PlayerRomance.Systems;
 
 namespace PlayerRomance.UI
 {
@@ -20,11 +21,12 @@ namespace PlayerRomance.UI
 
         private readonly ModEntry mod;
         private readonly long targetPlayerId;
-        private ClickableTextureComponent closeButton;
+        private ClickableTextureComponent closeButton = null!;
 
         private string hoverText = "";
         private Farmer? targetFarmer;
         private RelationshipRecord? relationship;
+        private PlayerProfileRecord? profile;
 
         private Rectangle portraitArea;
         private Rectangle infoArea;
@@ -37,6 +39,7 @@ namespace PlayerRomance.UI
 
             this.targetFarmer = this.mod.FindFarmerById(this.targetPlayerId, includeOffline: true);
             this.relationship = this.mod.DatingSystem.GetRelationship(this.mod.LocalPlayerId, this.targetPlayerId);
+            this.profile = this.mod.PlayerProfileSystem.GetProfile(this.targetPlayerId);
 
             this.UpdateLayout();
         }
@@ -112,7 +115,7 @@ namespace PlayerRomance.UI
             string status = this.GetRelationshipStatusLabel();
             b.DrawString(Game1.smallFont, status, new Vector2(textX + 4, textY + 48), Game1.textColor);
 
-            string birthday = "Birthday: ???";
+            string birthday = this.GetBirthdayText();
             b.DrawString(Game1.smallFont, birthday, new Vector2(textX + 4, textY + 78), Game1.textShadowColor);
 
             this.DrawHearts(b, textX, textY + 110);
@@ -162,15 +165,58 @@ namespace PlayerRomance.UI
             int startX = (int)titlePos.X;
             int startY = (int)titlePos.Y + 50;
 
-            for (int i = 0; i < 5; i++)
+            if (this.profile is null || this.profile.FavoriteGiftItemIds.Count == 0)
             {
-                Rectangle slotBounds = new Rectangle(startX + (i * 72), startY, 64, 64);
-                b.Draw(Game1.menuTexture, slotBounds, new Rectangle(128, 128, 64, 64), Color.White);
-                b.DrawString(Game1.tinyFont, "?", new Vector2(slotBounds.Center.X - 4, slotBounds.Center.Y - 10), Color.Gray * 0.5f);
+                b.DrawString(Game1.smallFont, "Favorites: Not set", new Vector2(startX, startY), Color.DarkGray);
+                return;
             }
 
-            b.DrawString(Game1.smallFont, "Gift history will appear here.",
-                new Vector2(startX, startY + 80), Color.DarkGray);
+            int shown = 0;
+            foreach (string id in this.profile.FavoriteGiftItemIds)
+            {
+                if (shown >= 5)
+                {
+                    break;
+                }
+
+                Rectangle slotBounds = new Rectangle(startX + (shown * 72), startY, 64, 64);
+                b.Draw(Game1.menuTexture, slotBounds, new Rectangle(128, 128, 64, 64), Color.White);
+
+                try
+                {
+                    Item? item = ItemRegistry.Create(id, 1, 0, allowNull: true);
+                    if (item is not null)
+                    {
+                        item.drawInMenu(b, new Vector2(slotBounds.X + 16, slotBounds.Y + 16), 1f);
+                    }
+                    else
+                    {
+                        b.DrawString(Game1.tinyFont, "?", new Vector2(slotBounds.Center.X - 4, slotBounds.Center.Y - 10), Color.Gray * 0.5f);
+                    }
+                }
+                catch
+                {
+                    b.DrawString(Game1.tinyFont, "?", new Vector2(slotBounds.Center.X - 4, slotBounds.Center.Y - 10), Color.Gray * 0.5f);
+                }
+
+                shown++;
+            }
+
+            b.DrawString(
+                Game1.smallFont,
+                $"Favorites: {string.Join(", ", this.profile.FavoriteGiftItemIds.Take(5))}",
+                new Vector2(startX, startY + 80),
+                Color.DarkGray);
+        }
+
+        private string GetBirthdayText()
+        {
+            if (this.profile is null || string.IsNullOrWhiteSpace(this.profile.BirthdaySeason) || this.profile.BirthdayDay <= 0)
+            {
+                return "Birthday: Unknown";
+            }
+
+            return $"Birthday: {PlayerProfileSystem.ToDisplaySeason(this.profile.BirthdaySeason)} {this.profile.BirthdayDay}";
         }
 
         private string GetRelationshipStatusLabel()

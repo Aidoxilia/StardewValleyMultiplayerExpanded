@@ -50,6 +50,10 @@ namespace PlayerRomance
         internal CoupleSynergySystem CoupleSynergySystem { get; private set; } = null!;
         internal LegacyChildrenSystem LegacyChildrenSystem { get; private set; } = null!;
         internal DateImmersionSystem DateImmersionSystem { get; private set; } = null!;
+        internal DateVendorShopService DateVendorShopService { get; private set; } = null!;
+        internal GiftTrackingSystem GiftTrackingSystem { get; private set; } = null!;
+        internal PlayerProfileSystem PlayerProfileSystem { get; private set; } = null!;
+        internal RomanceTabSystem RomanceTabSystem { get; private set; } = null!;
 
         // Events & Orchestrators
         internal DateEventController DateEventController { get; private set; } = null!;
@@ -93,6 +97,10 @@ namespace PlayerRomance
             this.CoupleSynergySystem = new CoupleSynergySystem(this);
             this.LegacyChildrenSystem = new LegacyChildrenSystem(this);
             this.DateImmersionSystem = new DateImmersionSystem(this);
+            this.DateVendorShopService = new DateVendorShopService(this);
+            this.GiftTrackingSystem = new GiftTrackingSystem(this);
+            this.PlayerProfileSystem = new PlayerProfileSystem(this);
+            this.RomanceTabSystem = new RomanceTabSystem(this);
 
             // Initialize Controllers
             this.DateEventController = new DateEventController(this);
@@ -106,6 +114,11 @@ namespace PlayerRomance
             // Initialize Harmony patches (C'est ça qui gère le menu social maintenant)
             SocialPagePatches.Initialize(this);
             PregnancyPatches.Initialize(this);
+            FarmerPatches.Initialize(this);
+            GameMenuPatches.Initialize(this);
+            GameMenuPatches.RegisterNavigationEvents(this.Helper.Events);
+
+            this.DateVendorShopService.LoadStock();
 
             this.Monitor.Log("[PR.Core] Entry complete.", LogLevel.Info);
         }

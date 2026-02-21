@@ -80,6 +80,12 @@ public sealed class CommandRegistrar
         this.mod.Helper.ConsoleCommands.Add("pr.date.warp_test", "Alias: host-only warp test to Date_Beach.", this.OnDateWarpTest);
         this.mod.Helper.ConsoleCommands.Add("pr.date.markers_dump", "Alias: host-only dump Date_Beach markers.", this.OnDateMarkersDump);
         this.mod.Helper.ConsoleCommands.Add("pr.vendor.shop.open", "Vendor shop command. Usage: pr.vendor.shop.open", this.OnVendorShopOpen);
+        this.mod.Helper.ConsoleCommands.Add("pr.gift.dump", "Debug dump of last observed vanilla gift event.", this.OnGiftDump);
+        this.mod.Helper.ConsoleCommands.Add("pr.gift.resetCounters", "Reset gift counters for a pair (host). Usage: pr.gift.resetCounters <playerA> <playerB>", this.OnGiftResetCounters);
+        this.mod.Helper.ConsoleCommands.Add("pr.gift.add", "Debug add baseline gift count for a pair (host). Usage: pr.gift.add <playerA> <playerB> <count>", this.OnGiftAdd);
+        this.mod.Helper.ConsoleCommands.Add("pr.profile.bday.set", "Set your profile birthday. Usage: pr.profile.bday.set <season> <day>", this.OnProfileBirthdaySet);
+        this.mod.Helper.ConsoleCommands.Add("pr.profile.favs.set", "Set your favorite gifts. Usage: pr.profile.favs.set <itemId1,itemId2,...>", this.OnProfileFavoritesSet);
+        this.mod.Helper.ConsoleCommands.Add("pr.profile.dump", "Dump profile data. Usage: pr.profile.dump <player>", this.OnProfileDump);
         this.mod.Helper.ConsoleCommands.Add("pr.sim.morning", "Debug simulate morning pass (day-start + 06:10 host tick).", this.OnSimMorning);
 
         this.mod.Helper.ConsoleCommands.Add("pr.hands.request", "Request holding hands with a player. Usage: pr.hands.request <player>", this.OnHandsRequest);
@@ -947,6 +953,97 @@ public sealed class CommandRegistrar
         this.Finish(this.mod.DateImmersionSystem.OpenVendorShopFromLocal(out string shopMsg), shopMsg);
     }
 
+    private void OnGiftDump(string command, string[] args)
+    {
+        if (!this.RequireWorldReady())
+        {
+            return;
+        }
+
+        this.mod.Notifier.NotifyInfo(this.mod.GiftTrackingSystem.DumpLastGiftEvent(), "[PR.System.Gift]");
+    }
+
+    private void OnGiftResetCounters(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 2))
+        {
+            return;
+        }
+
+        if (!this.TryResolvePairPlayers(args[0], args[1], out Farmer? a, out Farmer? b))
+        {
+            return;
+        }
+
+        this.Finish(this.mod.GiftTrackingSystem.ResetCountersHost(a.UniqueMultiplayerID, b.UniqueMultiplayerID, out string msg), msg);
+    }
+
+    private void OnGiftAdd(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 3))
+        {
+            return;
+        }
+
+        if (!this.TryResolvePairPlayers(args[0], args[1], out Farmer? a, out Farmer? b))
+        {
+            return;
+        }
+
+        if (!int.TryParse(args[2], out int count) || count <= 0)
+        {
+            this.mod.Notifier.NotifyWarn("Count must be a positive integer.", "[PR.System.Gift]");
+            return;
+        }
+
+        this.Finish(this.mod.GiftTrackingSystem.AddBaselineCountHost(a.UniqueMultiplayerID, b.UniqueMultiplayerID, count, out string msg), msg);
+    }
+
+    private void OnProfileBirthdaySet(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 2))
+        {
+            return;
+        }
+
+        if (!int.TryParse(args[1], out int day))
+        {
+            this.mod.Notifier.NotifyWarn("Day must be a number from 1 to 28.", "[PR.System.Profile]");
+            return;
+        }
+
+        this.Finish(this.mod.PlayerProfileSystem.RequestBirthdayUpdateFromLocal(args[0], day, out string message), message);
+    }
+
+    private void OnProfileFavoritesSet(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        {
+            return;
+        }
+
+        List<string> ids = args[0]
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+        this.Finish(this.mod.PlayerProfileSystem.RequestFavoritesUpdateFromLocal(ids, out string message), message);
+    }
+
+    private void OnProfileDump(string command, string[] args)
+    {
+        if (!this.RequireWorldReady() || !this.RequireArg(args, 1))
+        {
+            return;
+        }
+
+        if (!this.mod.TryResolvePlayerToken(args[0], out Farmer? player))
+        {
+            this.mod.Notifier.NotifyWarn($"Player '{args[0]}' not found.", "[PR.System.Profile]");
+            return;
+        }
+
+        this.mod.Notifier.NotifyInfo(this.mod.PlayerProfileSystem.DumpProfile(player.UniqueMultiplayerID), "[PR.System.Profile]");
+    }
+
     private void OnSimMorning(string command, string[] args)
     {
         if (!this.RequireWorldReady())
@@ -1009,6 +1106,12 @@ public sealed class CommandRegistrar
             "  date_start <dateId> <player>",
             "  date_end",
             "  pr.vendor.shop.open",
+            "  pr.gift.dump",
+            "  pr.gift.resetCounters <playerA> <playerB>",
+            "  pr.gift.add <playerA> <playerB> <count>",
+            "  pr.profile.bday.set <season> <day>",
+            "  pr.profile.favs.set <itemId1,itemId2,...>",
+            "  pr.profile.dump <player>",
             "  pr.child.age.set <child> <years>",
             "  pr.child.age.set <years>   (single child fallback)",
             "  pr.child.grow.force <child> [years>=16]",
@@ -1214,6 +1317,32 @@ public sealed class CommandRegistrar
             default:
                 return false;
         }
+    }
+
+    private bool TryResolvePairPlayers(string tokenA, string tokenB, out Farmer? playerA, out Farmer? playerB)
+    {
+        playerA = null;
+        playerB = null;
+
+        if (!this.mod.TryResolvePlayerToken(tokenA, out playerA))
+        {
+            this.mod.Notifier.NotifyWarn($"Player '{tokenA}' not found.", "[PR.System.Gift]");
+            return false;
+        }
+
+        if (!this.mod.TryResolvePlayerToken(tokenB, out playerB))
+        {
+            this.mod.Notifier.NotifyWarn($"Player '{tokenB}' not found.", "[PR.System.Gift]");
+            return false;
+        }
+
+        if (playerA.UniqueMultiplayerID == playerB.UniqueMultiplayerID)
+        {
+            this.mod.Notifier.NotifyWarn("Players must be different.", "[PR.System.Gift]");
+            return false;
+        }
+
+        return true;
     }
 
     private bool RequireWorldReady()

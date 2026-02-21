@@ -12,6 +12,7 @@ public sealed class NetSnapshot
     }
     public List<ChildRecord> Children { get; set; } = new();
     public List<ChildPublicState> ChildRuntimeStates { get; set; } = new();
+    public List<PlayerProfileRecord> PlayerProfiles { get; set; } = new();
     public List<CarrySessionState> CarrySessions { get; set; } = new();
     public List<HoldingHandsSessionState> HoldingHandsSessions { get; set; } = new();
     public DateImmersionPublicState? ActiveImmersiveDate { get; set; }

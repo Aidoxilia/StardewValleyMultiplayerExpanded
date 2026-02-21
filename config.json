@@ -29,6 +29,14 @@
   "EnablePregnancy": true,
   "PregnancyDays": 7,
   "PregnancyDurationDays": 7,
+  "EnableGiftDetection": true,
+  "GiftBaselineThreshold": 6,
+  "GiftDateThreshold": 3,
+  "GiftFavoriteThreshold": 3,
+  "EnableGiftHudMessages": false,
+  "AdditionalDateGiftItemIds": [],
+  "FavoriteGiftItemIdsByPlayer": {},
+  "EnableProfileSaveHudMessage": false,
   "EnableChildGrowth": true,
   "EnableChildFeedingSystem": true,
   "ChildYearsPerFedDayMin": 2,
@@ -66,5 +74,7 @@
   "LoveAuraRangeTiles": 6,
   "LoveAuraStaminaMultiplier": 0.85,
   "KissEnergyRestorePercent": 50,
+  "EnableRomanceTab": true,
+  "DisableRomanceTabOnError": false,
   "EnableDebugCommands": true
 }

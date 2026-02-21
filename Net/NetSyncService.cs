@@ -149,6 +149,12 @@ public sealed class NetSyncService
             {
                 snapshot.Children.Add(Clone(entry));
             }
+
+            foreach (PlayerProfileRecord entry in this.mod.HostSaveData.PlayerProfilesById.Values)
+            {
+                snapshot.PlayerProfiles.Add(Clone(entry));
+            }
+
             foreach (ChildPublicState entry in this.mod.ChildGrowthSystem.BuildPublicStatesSnapshot())
             {
                 snapshot.ChildRuntimeStates.Add(entry);
@@ -276,6 +282,18 @@ public sealed class NetSyncService
             CarrierId = source.CarrierId,
             CarriedId = source.CarriedId,
             Active = source.Active
+        };
+    }
+
+    private static PlayerProfileRecord Clone(PlayerProfileRecord source)
+    {
+        return new PlayerProfileRecord
+        {
+            PlayerId = source.PlayerId,
+            PlayerName = source.PlayerName,
+            BirthdaySeason = source.BirthdaySeason,
+            BirthdayDay = source.BirthdayDay,
+            FavoriteGiftItemIds = new List<string>(source.FavoriteGiftItemIds)
         };
     }
 

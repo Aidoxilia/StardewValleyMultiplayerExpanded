@@ -32,6 +32,14 @@ public sealed class ModConfig
     public bool EnablePregnancy { get; set; } = true;
     public int PregnancyDays { get; set; } = 7;
     public int PregnancyDurationDays { get; set; } = 7;
+    public bool EnableGiftDetection { get; set; } = true;
+    public int GiftBaselineThreshold { get; set; } = 6;
+    public int GiftDateThreshold { get; set; } = 3;
+    public int GiftFavoriteThreshold { get; set; } = 3;
+    public bool EnableGiftHudMessages { get; set; } = false;
+    public List<string> AdditionalDateGiftItemIds { get; set; } = new();
+    public Dictionary<string, List<string>> FavoriteGiftItemIdsByPlayer { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public bool EnableProfileSaveHudMessage { get; set; } = false;
     public bool EnableChildGrowth { get; set; } = true;
     public bool EnableChildFeedingSystem { get; set; } = true;
     public int ChildYearsPerFedDayMin { get; set; } = 2;
@@ -72,6 +80,9 @@ public sealed class ModConfig
     public int LoveAuraRangeTiles { get; set; } = 6;
     public float LoveAuraStaminaMultiplier { get; set; } = 0.85f;
     public int KissEnergyRestorePercent { get; set; } = 50;
+
+    public bool EnableRomanceTab { get; set; } = true;
+    public bool DisableRomanceTabOnError { get; set; } = false;
 
     public bool EnableDebugCommands { get; set; } = true;
 }

@@ -143,9 +143,16 @@ public sealed class HostHandlers
                     this.mod.ChildGrowthSystem.HandleChildCommandHost(command, e.FromPlayerID);
                     break;
                 }
+            case MessageType.ProfileUpdateRequest:
+                {
+                    PlayerProfileUpdateRequestMessage request = e.ReadAs<PlayerProfileUpdateRequestMessage>();
+                    this.mod.PlayerProfileSystem.HandleProfileUpdateRequestHost(request, e.FromPlayerID);
+                    break;
+                }
             case MessageType.EndDateEvent:
             case MessageType.DateEventPhase:
             case MessageType.NpcSync:
+            case MessageType.ProfileUpdated:
                 break;
         }
     }

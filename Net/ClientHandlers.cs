@@ -351,6 +351,12 @@ public sealed class ClientHandlers
                     this.mod.ChildGrowthSystem.ApplyNpcSyncClient(sync);
                     break;
                 }
+            case MessageType.ProfileUpdated:
+                {
+                    PlayerProfileUpdatedMessage profileUpdated = e.ReadAs<PlayerProfileUpdatedMessage>();
+                    this.mod.PlayerProfileSystem.ApplyProfileUpdatedClient(profileUpdated.Profile);
+                    break;
+                }
         }
     }
 

@@ -14,7 +14,7 @@ namespace PlayerRomance.UI
     {
         private readonly ModEntry mod;
         private readonly List<ChildRecord> children;
-        private ClickableTextureComponent closeButton;
+        private ClickableTextureComponent closeButton = null!;
 
         // List of child rows
         private readonly List<ChildRowComponent> childRows = new();

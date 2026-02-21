@@ -254,15 +254,6 @@ public sealed class DateImmersionSystem
                 catch { return Game1.content.Load<Texture2D>($"{prefix}\\{fallback}"); }
             },
             AssetLoadPriority.Exclusive);
-
-        if (!e.NameWithoutLocale.IsEquivalentTo("Data/Shops"))
-        {
-            return;
-        }
-
-        // Keep one true vanilla shop flow for date vendors.
-        // Ref: https://stardewvalleywiki.com/Modding:Shops#Open_a_custom_shop
-        // We use a vanilla shop ID at runtime (Saloon) via Utility.TryOpenShopMenu.
     }
 
     public void OnHostSaveLoadedRecovery()
@@ -1858,7 +1849,7 @@ public sealed class DateImmersionSystem
             "Npc_Spot_Vendor",
             GetStartTile(state.Location) + new Vector2(1f, 1f));
 
-        this.TrySpawnNpc(location, state.SessionId, "vendor_main", "Gus", "Npc_Spot_Vendor", vendorTile, fixedMode: true);
+        this.TrySpawnNpc(location, state.SessionId, "npc_vendor", "Gus", "Npc_Spot_Vendor", vendorTile, fixedMode: true);
         this.TrySpawnNpc(location, state.SessionId, "walker_1", "Sam", "Npc_Spot_1", MapMarkerReader.GetMarkerTileOrFallback(markers, "Npc_Spot_1", GetStartTile(state.Location) + new Vector2(2f, 1f)), fixedMode: false);
         this.TrySpawnNpc(location, state.SessionId, "walker_2", "Leah", "Npc_Spot_2", MapMarkerReader.GetMarkerTileOrFallback(markers, "Npc_Spot_2", GetStartTile(state.Location) + new Vector2(-2f, 1f)), fixedMode: false);
         this.TrySpawnNpc(location, state.SessionId, "walker_3", "Abigail", "Npc_Spot_3", MapMarkerReader.GetMarkerTileOrFallback(markers, "Npc_Spot_3", GetStartTile(state.Location) + new Vector2(4f, -1f)), fixedMode: false);
@@ -1925,7 +1916,7 @@ public sealed class DateImmersionSystem
                      && string.Equals(npcSession, sessionId, StringComparison.OrdinalIgnoreCase)))
         {
             bool isVendor = npc.modData.TryGetValue(TempNpcRoleKey, out string? role)
-                && role.Contains("vendor_", StringComparison.OrdinalIgnoreCase);
+                && string.Equals(role, "npc_vendor", StringComparison.OrdinalIgnoreCase);
 
             string roleKey = role ?? npc.Name;
 
@@ -2029,13 +2020,11 @@ public sealed class DateImmersionSystem
             }
         }
 
-        // Vanilla menu flow from Data/Shops + Utility.TryOpenShopMenu.
-        // Ref: https://stardewvalleywiki.com/Modding:Shops#Open_a_custom_shop
-        bool opened = Utility.TryOpenShopMenu("Saloon", string.Empty, true);
+        bool opened = this.mod.DateVendorShopService.TryOpenVendorShop(out string openMessage);
         message = opened ? "Vendor shop opened." : "Vendor shop unavailable right now.";
         if (!opened)
         {
-            this.mod.Monitor.Log("[PR.System.DateImmersion] Vendor shop open failed for 'Saloon'.", LogLevel.Trace);
+            this.mod.Monitor.Log($"[PR.System.DateImmersion] Vendor shop open failed: {openMessage}", LogLevel.Trace);
         }
 
         return opened;
@@ -2186,7 +2175,7 @@ public sealed class DateImmersionSystem
             && npc.modData.TryGetValue(TempNpcSessionKey, out string? npcSession)
             && string.Equals(npcSession, sessionId, StringComparison.OrdinalIgnoreCase)
             && npc.modData.TryGetValue(TempNpcRoleKey, out string? role)
-            && role.Contains("vendor_", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(role, "npc_vendor", StringComparison.OrdinalIgnoreCase)
             && Vector2.Distance(npc.Tile, playerTile) <= maxDistance);
         return vendor is not null;
     }
